@@ -1,0 +1,16 @@
+# Defaults for the ESP-01S relay carrier described in docs/DESIGN.md.
+# Override anything here with `make menuconfig`; the result lands in sdkconfig,
+# which is deliberately not committed.
+
+# ESP-01S modules carry 1 MB of flash. Plain ESP-01 modules may only have 512 KB;
+# if so, switch this to 512KB in menuconfig before flashing.
+CONFIG_ESPTOOLPY_FLASHSIZE_1MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="1MB"
+
+# DOUT at 40 MHz is the most forgiving combination on ESP-01/ESP-01S modules.
+CONFIG_ESPTOOLPY_FLASHMODE_DOUT=y
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
+
+# Conservative flashing speed; the breadboard harness is not always stable.
+CONFIG_ESPTOOLPY_BAUD_115200B=y
+CONFIG_ESPTOOLPY_BAUD=115200

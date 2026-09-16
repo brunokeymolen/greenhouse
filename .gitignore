@@ -1,0 +1,56 @@
+# --- ESP8266_RTOS_SDK build output ---
+build/
+sdkconfig
+sdkconfig.old
+# sdkconfig.defaults IS tracked: it is the source of truth for the config
+
+# Flash / firmware artifacts
+*.bin
+*.elf
+*.map
+*.hex
+
+# --- Compiled objects & libraries ---
+*.o
+*.a
+*.d
+*.su
+*.lo
+*.la
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# --- Editors / IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+compile_commands.json
+.clangd/
+.ccls-cache/
+
+# --- OS cruft ---
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+desktop.ini
+
+# --- Python (idf.py / esptool tooling, venvs) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Logs, dumps, temp files ---
+*.log
+*.tmp
+*.bak
+*.orig
+*.rej
+core

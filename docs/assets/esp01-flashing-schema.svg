@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+  <style>
+    .box { fill: #f8fafc; stroke: #111827; stroke-width: 2; rx: 10; }
+    .rail3v3 { stroke: #dc2626; stroke-width: 4; fill: none; }
+    .gnd { stroke: #2563eb; stroke-width: 4; fill: none; }
+    .sig { stroke: #111827; stroke-width: 3; fill: none; }
+    .wire { stroke-width: 3; fill: none; }
+    .red { stroke: #dc2626; }
+    .blue { stroke: #2563eb; }
+    .green { stroke: #16a34a; }
+    .orange { stroke: #ea580c; }
+    .purple { stroke: #7c3aed; }
+    .label { font: 18px sans-serif; fill: #111827; }
+    .small { font: 15px sans-serif; fill: #111827; }
+    .tiny { font: 13px sans-serif; fill: #111827; }
+    .title { font: bold 24px sans-serif; fill: #111827; }
+    .pin { fill: #ffffff; stroke: #111827; stroke-width: 2; }
+    .node { fill: #111827; }
+    .button { fill: #e5e7eb; stroke: #111827; stroke-width: 2; rx: 8; }
+    .res { fill: #fff7ed; stroke: #111827; stroke-width: 2; rx: 6; }
+    .cap { stroke: #111827; stroke-width: 3; }
+  </style>
+
+  <text x="40" y="40" class="title">ESP-01 / ESP-01S flashing harness</text>
+  <text x="40" y="68" class="small">Use 3.3 V logic only. Power the ESP-01 from a 3.3 V supply/regulator rated 500 mA or more.</text>
+
+  <line x1="70" y1="115" x2="1030" y2="115" class="rail3v3"/>
+  <text x="75" y="104" class="label">+3.3 V rail</text>
+  <line x1="70" y1="690" x2="1030" y2="690" class="gnd"/>
+  <text x="75" y="724" class="label">GND rail / common ground</text>
+
+  <rect x="90" y="165" width="240" height="190" class="box"/>
+  <text x="125" y="198" class="label">3.3 V supply</text>
+  <text x="125" y="225" class="small">500 mA minimum</text>
+  <text x="125" y="252" class="small">Do not use 5 V</text>
+  <line x1="270" y1="200" x2="270" y2="115" class="wire red"/>
+  <circle cx="270" cy="115" r="5" class="node"/>
+  <line x1="270" y1="315" x2="270" y2="690" class="wire blue"/>
+  <circle cx="270" cy="690" r="5" class="node"/>
+
+  <rect x="430" y="150" width="260" height="360" class="box"/>
+  <text x="510" y="183" class="label">ESP-01</text>
+  <text x="462" y="210" class="tiny">component side, antenna at top</text>
+  <rect x="490" y="225" width="140" height="48" fill="#dbeafe" stroke="#111827" stroke-width="2"/>
+  <text x="522" y="255" class="small">antenna</text>
+
+  <circle cx="470" cy="310" r="10" class="pin"/><text x="490" y="316" class="small">GND</text>
+  <circle cx="470" cy="365" r="10" class="pin"/><text x="490" y="371" class="small">GPIO2</text>
+  <circle cx="470" cy="420" r="10" class="pin"/><text x="490" y="426" class="small">GPIO0</text>
+  <circle cx="470" cy="475" r="10" class="pin"/><text x="490" y="481" class="small">RX / GPIO3</text>
+
+  <circle cx="650" cy="310" r="10" class="pin"/><text x="570" y="316" class="small">TX / GPIO1</text>
+  <circle cx="650" cy="365" r="10" class="pin"/><text x="570" y="371" class="small">CH_PD / EN</text>
+  <circle cx="650" cy="420" r="10" class="pin"/><text x="570" y="426" class="small">RST</text>
+  <circle cx="650" cy="475" r="10" class="pin"/><text x="570" y="481" class="small">VCC</text>
+
+  <line x1="650" y1="475" x2="650" y2="115" class="wire red"/>
+  <circle cx="650" cy="115" r="5" class="node"/>
+  <line x1="470" y1="310" x2="470" y2="690" class="wire blue"/>
+  <circle cx="470" cy="690" r="5" class="node"/>
+
+  <rect x="755" y="160" width="240" height="185" class="box"/>
+  <text x="800" y="195" class="label">USB-TTL adapter</text>
+  <text x="800" y="222" class="small">3.3 V logic</text>
+  <text x="792" y="270" class="small">TXD</text>
+  <text x="792" y="305" class="small">RXD</text>
+  <text x="792" y="340" class="small">GND</text>
+
+  <line x1="815" y1="265" x2="470" y2="475" class="wire green"/>
+  <text x="610" y="562" class="tiny">TXD to ESP RX</text>
+  <line x1="815" y1="300" x2="650" y2="310" class="wire orange"/>
+  <text x="705" y="295" class="tiny">RXD from ESP TX</text>
+  <line x1="815" y1="335" x2="815" y2="690" class="wire blue"/>
+  <circle cx="815" cy="690" r="5" class="node"/>
+
+  <rect x="745" y="384" width="120" height="34" class="res"/>
+  <text x="764" y="407" class="small">10 kOhm</text>
+  <line x1="650" y1="365" x2="745" y2="401" class="wire red"/>
+  <line x1="865" y1="401" x2="930" y2="401" class="wire red"/>
+  <line x1="930" y1="401" x2="930" y2="115" class="wire red"/>
+  <circle cx="930" cy="115" r="5" class="node"/>
+  <text x="878" y="380" class="tiny">EN pull-up</text>
+
+  <rect x="745" y="434" width="120" height="34" class="res"/>
+  <text x="764" y="457" class="small">10 kOhm</text>
+  <line x1="650" y1="420" x2="745" y2="451" class="wire red"/>
+  <line x1="865" y1="451" x2="930" y2="451" class="wire red"/>
+  <text x="878" y="432" class="tiny">RST pull-up</text>
+
+  <rect x="745" y="515" width="140" height="45" class="button"/>
+  <text x="779" y="543" class="small">RESET</text>
+  <line x1="650" y1="420" x2="745" y2="538" class="wire purple"/>
+  <line x1="885" y1="538" x2="885" y2="690" class="wire blue"/>
+  <circle cx="885" cy="690" r="5" class="node"/>
+
+  <rect x="250" y="384" width="120" height="34" class="res"/>
+  <text x="269" y="407" class="small">10 kOhm</text>
+  <line x1="470" y1="365" x2="370" y2="401" class="wire red"/>
+  <line x1="250" y1="401" x2="190" y2="401" class="wire red"/>
+  <line x1="190" y1="401" x2="190" y2="115" class="wire red"/>
+  <circle cx="190" cy="115" r="5" class="node"/>
+  <text x="222" y="380" class="tiny">GPIO2 pull-up</text>
+
+  <rect x="250" y="434" width="120" height="34" class="res"/>
+  <text x="269" y="457" class="small">10 kOhm</text>
+  <line x1="470" y1="420" x2="370" y2="451" class="wire red"/>
+  <line x1="250" y1="451" x2="190" y2="451" class="wire red"/>
+  <text x="222" y="432" class="tiny">GPIO0 pull-up</text>
+
+  <rect x="205" y="515" width="140" height="45" class="button"/>
+  <text x="244" y="543" class="small">FLASH</text>
+  <line x1="470" y1="420" x2="345" y2="538" class="wire purple"/>
+  <line x1="205" y1="538" x2="205" y2="690" class="wire blue"/>
+  <circle cx="205" cy="690" r="5" class="node"/>
+
+  <line x1="360" y1="142" x2="360" y2="238" class="wire red"/>
+  <line x1="390" y1="142" x2="390" y2="238" class="wire blue"/>
+  <line x1="350" y1="185" x2="370" y2="185" class="cap"/>
+  <line x1="380" y1="185" x2="400" y2="185" class="cap"/>
+  <text x="318" y="130" class="small">100 nF</text>
+  <line x1="360" y1="142" x2="360" y2="115" class="wire red"/>
+  <circle cx="360" cy="115" r="5" class="node"/>
+  <line x1="390" y1="238" x2="390" y2="690" class="wire blue"/>
+  <circle cx="390" cy="690" r="5" class="node"/>
+
+  <line x1="1020" y1="142" x2="1020" y2="260" class="wire red"/>
+  <line x1="1050" y1="142" x2="1050" y2="260" class="wire blue"/>
+  <line x1="1008" y1="178" x2="1032" y2="178" class="cap"/>
+  <line x1="1008" y1="215" x2="1032" y2="215" class="cap"/>
+  <text x="946" y="130" class="small">220-470 uF</text>
+  <line x1="1020" y1="142" x2="1020" y2="115" class="wire red"/>
+  <circle cx="1020" cy="115" r="5" class="node"/>
+  <line x1="1050" y1="260" x2="1050" y2="690" class="wire blue"/>
+  <circle cx="1050" cy="690" r="5" class="node"/>
+
+  <text x="40" y="745" class="tiny">Flash mode: hold FLASH, tap RESET, then start flashing. Normal boot: release FLASH and tap RESET.</text>
+</svg>

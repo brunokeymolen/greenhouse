@@ -1,0 +1,139 @@
+menu "Greenhouse controller"
+
+choice GREENHOUSE_SENSOR_TYPE
+    prompt "Humidity/temperature sensor"
+    default GREENHOUSE_SENSOR_DHT22
+    help
+        Both parts share a single-wire protocol and the same driver. The DHT22
+        is the better fit for a greenhouse: the DHT11 is rated only 20-90 %RH
+        and 0-50 C, and a greenhouse crosses 90 %RH exactly when ventilation is
+        wanted.
+
+config GREENHOUSE_SENSOR_DHT11
+    bool "DHT11"
+
+config GREENHOUSE_SENSOR_DHT22
+    bool "DHT22 / AM2302"
+
+endchoice
+
+config GREENHOUSE_SENSOR_GPIO
+    int "Sensor DATA GPIO"
+    default 2
+    range 0 3
+    help
+        The ESP-01 header breaks out only GPIO0, GPIO1, GPIO2 and GPIO3.
+        GPIO0 drives the relay on the carrier board and GPIO3 is the serial RX
+        needed for flashing, so the real choice is GPIO2 or GPIO1.
+
+        GPIO2 (default) keeps the serial console working, which makes every
+        later milestone easier to debug. It is high at boot through its pull-up,
+        which is what the boot straps require, and a DHT11 idles high too.
+
+        GPIO1 is the design document's original choice. It works, but it is the
+        UART TX pin, so serial logging must be disabled and the web UI becomes
+        the only way to see what the firmware is doing.
+
+        Verify with a continuity meter which pin your carrier wires to the relay
+        driver before committing. A few carrier variants use GPIO2 rather than
+        GPIO0; on those, GPIO2 is not available for the sensor.
+
+config GREENHOUSE_RELAY_GPIO
+    int "Relay control GPIO"
+    default 0
+    range 0 3
+    help
+        GPIO0 on the common ESP-01 relay carriers. Confirm with a continuity
+        meter before wiring a load: a minority of carriers use GPIO2 instead,
+        which would collide with the DHT11.
+
+        GPIO0 is also the boot strap. It is held high by its pull-up until
+        relay_init() runs, so on an active-high carrier the relay is energised
+        for the first few hundred milliseconds after power-up. Relay polarity is
+        a runtime setting, not a Kconfig one, so it can be flipped from the web
+        UI during bring-up.
+
+config GREENHOUSE_SENSOR_POLL_INTERVAL_S
+    int "Sensor poll interval, seconds"
+    default 5
+    range 2 60
+    help
+        Each reading disables interrupts for roughly 5 ms, so do not poll faster
+        than the DHT11's own one-second conversion rate allows.
+
+config GREENHOUSE_SENSOR_STALE_TIMEOUT_S
+    int "Seconds without a valid reading before the value is flagged stale"
+    default 60
+    range 10 600
+
+config GREENHOUSE_AP_PASSWORD
+    string "SoftAP WPA2 password"
+    default "greenhouse"
+    help
+        At least 8 characters, or the AP falls back to an open network.
+
+config GREENHOUSE_AP_CHANNEL
+    int "SoftAP channel"
+    default 1
+    range 1 13
+
+config GREENHOUSE_AP_MAX_CONN
+    int "Maximum simultaneous AP clients"
+    default 4
+    range 1 8
+
+config GREENHOUSE_HISTORY_SAMPLES
+    int "Samples kept for the history chart"
+    default 2016
+    range 60 4032
+    help
+        Each sample costs 3 bytes of static RAM. 2016 samples at the default
+        300 s interval is 7 days and about 6 kB.
+
+        History lives in RAM only and is lost on reboot. Persisting it would
+        mean writing flash every interval, which wears the part out on a device
+        meant to run for whole seasons.
+
+config GREENHOUSE_HISTORY_INTERVAL_S
+    int "Seconds per history sample"
+    default 300
+    range 30 3600
+    help
+        Sensor polls are averaged into buckets of this length. A bucket with no
+        valid reading is stored as a gap rather than a zero.
+
+config GREENHOUSE_DIAG_WIFI_PROBES
+    bool "Diagnostic: log Wi-Fi probe requests"
+    default n
+    help
+        Unmasks WIFI_EVENT_AP_PROBEREQRECVED and logs the MAC and RSSI of every
+        probe request, rate limited.
+
+        Use it when a client can see the network but cannot join. Probes logged
+        means the client's RF reaches the device and the failure is in
+        authentication; no probes at all means the client never got that far.
+
+        Noisy: every nearby device probes. Leave off in normal builds.
+
+config GREENHOUSE_DIAG_AP_OPEN
+    bool "Diagnostic: run the access point with no password"
+    default n
+    help
+        Starts the SoftAP open instead of WPA2. Splits an authentication problem
+        from an RF or client problem: if an open network joins fine, the fault is
+        in the PSK path, not the radio.
+
+        Obviously do not ship this.
+
+config GREENHOUSE_DIAG_NO_WIFI
+    bool "Diagnostic: start without Wi-Fi"
+    default n
+    help
+        Skips the access point and web server, leaving only the sensor task.
+
+        Use this to tell a supply or RF problem apart from a bad sensor. The
+        DHT11's humidity element is far more sensitive to a sagging 3.3 V rail
+        than its temperature element, so readings that steady up with the radio
+        off point at power, not at the sensor.
+
+endmenu
