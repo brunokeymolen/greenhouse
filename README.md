@@ -60,7 +60,7 @@ look like garbage in a 115200 terminal. That is normal.
 
 ## Using it
 
-Join the `Greenhouse-XXXX` Wi-Fi network (default password `greenhouse`, change
+Join the `Greenhouse-XXXX` Wi-Fi network (factory password `greenhouse`, change
 it with `docker/run.sh make menuconfig`) and open <http://192.168.4.1>. The page
 polls `/api/status` every two seconds.
 
@@ -109,15 +109,25 @@ curl -X POST http://192.168.4.1/api/config \
 | `fan_mode` | 1 (auto) | 0 off / 1 auto / 2 on |
 | `device_name` | `"Fan"` | 1-23 bytes |
 | `ap_ssid` | `""` (derive from MAC) | 0-32 bytes |
+| `wifi_mode` | 0 (own access point) | 0 access point / 1 join a network |
+| `ap_password` | `greenhouse` | 8-63 bytes, or empty for an open network |
+| `sta_ssid` | `""` | 0-32 bytes, required when `wifi_mode` is 1 |
+| `sta_password` | `""` | 8-63 bytes, or empty for an open network |
 | `temp_enabled` | true | bool |
 | `humidity_enabled` | true | bool |
 | `relay_active_low` | false | bool |
 
 Times are entered in minutes on the page; the API uses seconds throughout.
 
+Both passwords are write-only over the API: `GET /api/config` reports
+`ap_password_set` and `sta_password_set` rather than the values, and a `POST`
+that carries an empty password leaves the stored one alone.
+
 Settings persist across reboots in NVS. A stored config that is corrupt, written
 by a different config version, or out of bounds is discarded and the defaults are
-rewritten, so a bad value can never reach the controller.
+rewritten, so a bad value can never reach the controller. A config written by
+version 1 or 3 of the layout is migrated in place instead, keeping the settings
+it did have.
 
 Occasional entries in `reads_failed` are normal for a DHT11. A rising
 `reads_failed` with `valid:false` means wiring — check the pull-up first.
@@ -232,24 +242,85 @@ GRACE_FORCED   max_fan_duration hit; fan off and locked out for grace_period
 FAULT          no usable reading for 60 s; fan off
 ```
 
-## Network name
+## Network settings
 
-`ap_ssid` sets the Wi-Fi network name. Left empty, the device derives
-`Greenhouse-XXXX` from the last two bytes of its own MAC, so several units stay
-distinguishable without configuring each one.
+The device either serves its own access point or joins an existing network. The
+choice, both network names and both passwords live behind the collapsed
+**Network settings** section near the bottom of the page, next to **Bring-up
+tools**, with its own save button - none of it is part of the everyday settings
+form.
 
-The field lives behind the collapsed **Network settings** section near the bottom
-of the page, next to **Bring-up tools**, with its own save button - it is not
-part of the everyday settings form.
+**Own access point** is the factory state and needs no other equipment. Leave
+the name empty and the device derives `Greenhouse-XXXX` from the last two bytes
+of its own MAC, so several units stay distinguishable without configuring each
+one.
+
+**Join a network** puts the readings on your house network, reachable from
+anywhere in it rather than only from within radio range of the greenhouse. The
+device registers the access point name as its DHCP hostname, so it can be found
+in the router's client list without hunting for an address.
 
 A change applies **on restart**, not immediately: reconfiguring the radio while
 serving the request that asked for it would drop the reply, and the page could
 not then tell success from failure. Save, then use *Restart device* under
-*Bring-up tools*, then join the new network.
+*Bring-up tools*, then reconnect.
 
-The AP password is still compile-time (`CONFIG_GREENHOUSE_AP_PASSWORD`). It is
-deliberately not editable over the air: a mistyped password saved remotely locks
-you out of the only interface the device has.
+Passwords are never sent back to the browser - the page is told only whether one
+is set. An empty password field therefore means *leave it unchanged*, not *clear
+it*, so a form submitted without retyping the password cannot open the network by
+accident.
+
+### When it cannot join
+
+If the configured network cannot be joined at startup, the device raises a
+**recovery access point** instead and says so in a banner at the top of the page.
+
+Nothing is written when that happens. The stored setting still says "join that
+network", so the next restart tries it again, and if nobody connects to the
+recovery access point within ten minutes the device restarts by itself to do
+exactly that. A router that was merely slow to come back, or briefly rebooted,
+therefore heals without anyone walking out to the greenhouse.
+
+Once the network has been joined successfully, a later disconnection does *not*
+drop to recovery: the device reconnects indefinitely, so a router reboot never
+costs you the connection. Only if it stays unreachable for fifteen minutes does
+it restart and re-run the join attempts.
+
+The recovery access point uses the **configured** AP password, not the factory
+one. Otherwise anyone able to knock the house router offline would be handed a
+network with a documented default password and a relay on the other end.
+Recovery is for "my router changed", not for "I forgot my password" - that is
+what the factory reset below is for.
+
+## Factory reset
+
+Tap the reset button on the board **five times in a row**, roughly a second
+apart. The relay clicks three times to confirm, and the device comes back on its
+own access point with the built-in password (`CONFIG_GREENHOUSE_AP_PASSWORD`,
+`greenhouse` unless you changed it at build time). Every other setting returns to
+its default too.
+
+This is the only way back into a device whose password has been forgotten or
+whose network no longer exists, and it deliberately requires physical access.
+There is nothing to reflash.
+
+It has to be the reset button because there is nothing else: GPIO0 drives the
+relay, GPIO2 the sensor, GPIO1 and GPIO3 are the UART, and the ESP-01 header
+breaks out nothing more. And it has to be *taps* rather than a long press,
+because RST is an asynchronous hardware reset - while it is held the CPU is in
+reset and no code is running to time it. Holding the button for ten seconds is
+indistinguishable from tapping it once.
+
+What is observable is how each boot was caused. A tap reports `ESP_RST_EXT` and
+finds the previous boot's count still in RTC memory, which survives a reset but
+not a power cut; five in quick succession is a deliberate act. A crash reports
+`ESP_RST_PANIC` and a hang `ESP_RST_WDT`, either of which breaks the chain - so a
+device stuck in a boot loop keeps its configuration instead of quietly wiping it.
+Waiting more than five seconds between taps also ends the chain, which is what
+stops unrelated resets over a whole season from ever adding up.
+
+The count, the window and the confirmation clicks are all configurable under
+*Greenhouse controller* in `make menuconfig`.
 
 ## Naming the load
 
@@ -312,9 +383,15 @@ docker/run.sh make menuconfig    # Greenhouse controller
 | `GREENHOUSE_SENSOR_GPIO` | 2 |
 | `GREENHOUSE_SENSOR_POLL_INTERVAL_S` | 5 (initial default only; runtime value lives in NVS) |
 | `GREENHOUSE_SENSOR_STALE_TIMEOUT_S` | 60 |
-| `GREENHOUSE_AP_PASSWORD` | `greenhouse` |
+| `GREENHOUSE_AP_PASSWORD` | `greenhouse` (factory value; runtime value lives in NVS) |
 | `GREENHOUSE_AP_CHANNEL` | 1 |
 | `GREENHOUSE_AP_MAX_CONN` | 4 |
+| `GREENHOUSE_STA_CONNECT_ATTEMPTS` | 10 |
+| `GREENHOUSE_RECOVERY_AP_IDLE_S` | 600 |
+| `GREENHOUSE_STA_DOWN_RESTART_S` | 900 |
+| `GREENHOUSE_FACTORY_RESET_PRESSES` | 5 |
+| `GREENHOUSE_FACTORY_RESET_WINDOW_S` | 5 |
+| `GREENHOUSE_FACTORY_RESET_CLICK` | y |
 | `GREENHOUSE_HISTORY_SAMPLES` | 2016 (7 days, ~6 kB) |
 | `GREENHOUSE_HISTORY_INTERVAL_S` | 300 |
 

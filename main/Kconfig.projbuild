@@ -67,10 +67,19 @@ config GREENHOUSE_SENSOR_STALE_TIMEOUT_S
     range 10 600
 
 config GREENHOUSE_AP_PASSWORD
-    string "SoftAP WPA2 password"
+    string "Default SoftAP WPA2 password"
     default "greenhouse"
     help
-        At least 8 characters, or the AP falls back to an open network.
+        The factory password for the device's own access point, used on a fresh
+        device and restored by a factory reset. It can be changed at runtime
+        from the web UI, which is what a deployed device should use.
+
+        Because this is the value a factory reset returns to, it is what has to
+        be printed on the device label or in the documentation: it is the only
+        credential someone recovering an unreachable unit can be expected to
+        know.
+
+        At least 8 characters, or the access point starts open.
 
 config GREENHOUSE_AP_CHANNEL
     int "SoftAP channel"
@@ -81,6 +90,73 @@ config GREENHOUSE_AP_MAX_CONN
     int "Maximum simultaneous AP clients"
     default 4
     range 1 8
+
+config GREENHOUSE_STA_CONNECT_ATTEMPTS
+    int "Join attempts before falling back to a recovery access point"
+    default 10
+    range 3 30
+    help
+        How many times to try joining the configured network at boot before
+        giving up and raising the recovery access point for that boot.
+
+        This counts only the initial join. Once the network has been joined
+        successfully, later disconnections reconnect indefinitely instead, so a
+        router reboot never demotes a working device.
+
+config GREENHOUSE_RECOVERY_AP_IDLE_S
+    int "Seconds before an unused recovery access point restarts the device"
+    default 600
+    range 60 3600
+    help
+        If nobody joins the recovery access point within this time, restart and
+        try the configured network again. That is what makes a router which was
+        merely slow to come back heal without anyone walking out to the
+        greenhouse.
+
+        The countdown stops while a client is connected, so the device never
+        reboots out from under someone who is halfway through the settings form.
+
+config GREENHOUSE_STA_DOWN_RESTART_S
+    int "Seconds disconnected from a known network before restarting"
+    default 900
+    range 120 7200
+    help
+        Applies once the configured network has been joined at least once. If it
+        stays unreachable for this long, restart: a fresh boot re-runs the join
+        attempts and, if the network really is gone for good, ends up in the
+        recovery access point where the settings can be corrected.
+
+config GREENHOUSE_FACTORY_RESET_PRESSES
+    int "Resets in a row that restore factory defaults"
+    default 5
+    range 3 10
+    help
+        The ESP-01 has no spare GPIO for a button and RST cannot be timed in
+        firmware, so a factory reset is requested by tapping the reset button
+        this many times in quick succession. See main/factory_reset.h.
+
+        Lower values are easier to perform and easier to trigger by accident;
+        the risk is a flaky supply producing a burst of resets.
+
+config GREENHOUSE_FACTORY_RESET_WINDOW_S
+    int "Seconds a reset may be followed by the next one"
+    default 5
+    range 2 30
+    help
+        Each tap has to arrive within this many seconds of the previous boot, or
+        the chain is forgotten. Long enough to be comfortable, short enough that
+        unrelated resets over the device's life never accumulate.
+
+config GREENHOUSE_FACTORY_RESET_CLICK
+    bool "Confirm a factory reset by clicking the relay"
+    default y
+    help
+        Pulse the relay three times after restoring defaults. The relay is the
+        only output this board has, and a headless device that has just
+        discarded the owner's settings should say so audibly.
+
+        Turn this off if the relay switches something that must not be touched
+        even briefly.
 
 config GREENHOUSE_HISTORY_SAMPLES
     int "Samples kept for the history chart"

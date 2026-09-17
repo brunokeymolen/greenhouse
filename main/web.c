@@ -15,11 +15,16 @@
 #include "history.h"
 #include "relay.h"
 #include "sdkconfig.h"
+#include "factory_reset.h"
 #include "sensor.h"
-#include "wifi_ap.h"
+#include "wifi.h"
 
-/* Largest config POST we will read. The form sends well under 300 bytes. */
-#define CONFIG_BODY_MAX 512
+/*
+ * Largest config POST we will read. The settings form sends well under 300
+ * bytes; the network form can approach 250 with two 32-byte names and two
+ * 63-character passphrases.
+ */
+#define CONFIG_BODY_MAX 768
 
 static const char *TAG = "web";
 
@@ -125,10 +130,17 @@ static const char index_html[] =
 "summary::-webkit-details-marker{display:none}"
 "summary:before{content:'\\25b8 ';display:inline-block;transition:transform .15s}"
 "details[open] summary:before{transform:rotate(90deg)}"
-"input[type=text]{width:100%;padding:12px 14px;font:inherit;font-size:20px;"
-"border:1px solid #d3d9d0;border-radius:8px;background:#fff;color:inherit}"
-"@media(prefers-color-scheme:dark){input[type=text]{background:#14171a;"
-"color:#e8eae6;border-color:#39414a}}"
+"input[type=text],input[type=password]{width:100%;padding:12px 14px;font:inherit;"
+"font-size:20px;border:1px solid #d3d9d0;border-radius:8px;background:#fff;color:inherit}"
+"@media(prefers-color-scheme:dark){input[type=text],input[type=password]{"
+"background:#14171a;color:#e8eae6;border-color:#39414a}}"
+".netwarn{margin:0 0 18px;padding:15px;border-radius:8px;background:#fdecea;"
+"border:1px solid #f5c6c0;color:#8a1c10;font-size:18px}"
+"@media(prefers-color-scheme:dark){.netwarn{background:#2b1a18;border-color:#5c2b25;"
+"color:#f0b5ae}}"
+".seg.wifi{margin-top:6px}"
+".seg.wifi button.sel{background:#2f6b3c;color:#fff}"
+"@media(prefers-color-scheme:dark){.seg.wifi button.sel{background:#2f6b3c;color:#fff}}"
 ".tools{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}"
 ".tools button{margin-top:0;flex:1 1 auto;background:#4a5350;font-size:18px;padding:14px}"
 ".rangerow{display:flex;justify-content:space-between;align-items:center;"
@@ -146,6 +158,7 @@ static const char index_html[] =
 "</style></head><body><main>"
 "<h1>Greenhouse controller</h1>"
 "<p class=\"sub\" id=\"ssid\">&nbsp;</p>"
+"<div class=\"netwarn\" id=\"netwarn\" hidden></div>"
 "<div class=\"grid\">"
 "<div class=\"card\"><div class=\"label\">Temperature</div>"
 "<div class=\"val\" id=\"t\">--<span class=\"unit\"> &deg;C</span></div></div>"
@@ -223,16 +236,40 @@ static const char index_html[] =
 "uses seconds.</p>"
 "</fieldset></form>"
 "<details><summary>Network settings</summary>"
-"<div class=\"row\" style=\"padding-top:4px\">"
-"<input type=\"text\" id=\"apssid\" maxlength=\"32\" "
-"placeholder=\"Greenhouse-XXXX (from MAC)\" aria-label=\"Wi-Fi network name\"></div>"
-"<p class=\"hint\">Wi-Fi network name. Leave empty to derive it from this "
-"unit's MAC address. <b>Takes effect after a restart</b>, and you will need to "
-"join the new network to get back to this page. The password is set at build "
-"time and is not changed here.</p>"
-"<div class=\"tools\">"
-"<button type=\"button\" id=\"bssid\">Save network name</button>"
-"</div></details>"
+"<fieldset style=\"margin-top:4px\"><legend>Wi-Fi mode</legend>"
+"<div class=\"seg wifi\" id=\"wseg\">"
+"<button type=\"button\" data-w=\"0\">Own access point</button>"
+"<button type=\"button\" data-w=\"1\">Join a network</button>"
+"</div>"
+"<div id=\"apbox\">"
+"<div class=\"row\"><input type=\"text\" id=\"apssid\" maxlength=\"32\" "
+"placeholder=\"Greenhouse-XXXX (from MAC)\" aria-label=\"Access point name\"></div>"
+"<div class=\"row\" style=\"padding-top:0\"><input type=\"password\" id=\"appw\" "
+"maxlength=\"63\" autocomplete=\"new-password\" "
+"aria-label=\"Access point password\"></div>"
+"<p class=\"hint\">The device serves its own network. Leave the name empty to "
+"derive it from this unit's MAC address. Leave the password empty to keep the "
+"current one; at least 8 characters to change it.</p>"
+"</div>"
+"<div id=\"stabox\" hidden>"
+"<div class=\"row\"><input type=\"text\" id=\"stassid\" maxlength=\"32\" "
+"placeholder=\"Network name\" aria-label=\"Name of the network to join\"></div>"
+"<div class=\"row\" style=\"padding-top:0\"><input type=\"password\" id=\"stapw\" "
+"maxlength=\"63\" autocomplete=\"new-password\" "
+"aria-label=\"Password of the network to join\"></div>"
+"<p class=\"hint\">The device joins your existing network and the readings stay "
+"reachable from anywhere in the house. Find its address in your router's client "
+"list, under the access point name above. If it cannot join at startup it "
+"serves its own network for that boot and tries yours again at the next "
+"restart.</p>"
+"</div>"
+"<button type=\"button\" id=\"bnet\">Save network settings</button>"
+"<p class=\"hint\"><b>Takes effect after a restart.</b> You will have to "
+"reconnect to reach this page again. If you lose access altogether, tap the "
+"reset button on the board "
+"<span id=\"frn\">5</span> times in a row, about a second apart: that restores "
+"the built-in access point and password.</p>"
+"</fieldset></details>"
 "<details><summary>Bring-up tools</summary>"
 "<div class=\"tools\">"
 "<button type=\"button\" id=\"btest\">Test relay (5 s)</button>"
@@ -244,7 +281,12 @@ static const char index_html[] =
 "</main><script>"
 "var F=[['temp_threshold_c',1],['humidity_threshold_pct',1],['start_delay_s',60],"
 "['max_fan_duration_s',60],['grace_period_s',60],['sensor_poll_interval_s',1]];"
-"var MODE=1,DEV='Fan';"
+"var MODE=1,DEV='Fan',WM=0;"
+"function paintW(m){WM=m;"
+"Array.prototype.forEach.call(document.getElementById('wseg').children,function(b){"
+"b.className=(Number(b.dataset.w)===m)?'sel':''});"
+"document.getElementById('apbox').hidden=(m!==0);"
+"document.getElementById('stabox').hidden=(m!==1);}"
 "function setDev(n){if(!n||n===DEV)return;DEV=n;"
 "document.getElementById('devlabel').textContent=n;"
 "document.getElementById('keyfan').textContent=n;"
@@ -291,8 +333,17 @@ static const char index_html[] =
 "m.textContent=t;m.className=good?'ok':'warn'}"
 "async function tick(){try{"
 "const r=await fetch('/api/status',{cache:'no-store'});const d=await r.json();"
-"document.getElementById('ssid').textContent=d.ssid+' \\u00b7 192.168.4.1'"
+"document.getElementById('ssid').textContent=d.ssid+(d.ip?' \\u00b7 '+d.ip:'')"
 "+(d.sensor?' \\u00b7 '+d.sensor:'');"
+"var nw=document.getElementById('netwarn');"
+"if(d.net==='recovery'){nw.hidden=false;nw.textContent="
+"'Could not join the configured network, so the device is serving its own for "
+"now. Nothing has been changed: it tries your network again at the next "
+"restart, and restarts by itself once nobody is connected here.'}"
+"else if(d.factory_reset){nw.hidden=false;nw.textContent="
+"'Factory defaults were restored from the reset button. The device is back on "
+"its own access point with the built-in password.'}"
+"else{nw.hidden=true}"
 "document.getElementById('t').innerHTML=(d.valid?d.temperature_c.toFixed(1):'--')+'<span class=\"unit\"> \\u00b0C</span>';"
 "document.getElementById('h').innerHTML=(d.valid?d.humidity_pct.toFixed(1):'--')+'<span class=\"unit\"> %</span>';"
 "document.getElementById('age').textContent=d.valid?dur(d.age_s):'never';"
@@ -325,6 +376,16 @@ static const char index_html[] =
 "if(d.device_name&&document.activeElement!==dn)dn.value=d.device_name;"
 "var ap=document.getElementById('apssid');"
 "if(document.activeElement!==ap&&typeof d.ap_ssid==='string')ap.value=d.ap_ssid;"
+"var ss=document.getElementById('stassid');"
+"if(document.activeElement!==ss&&typeof d.sta_ssid==='string')ss.value=d.sta_ssid;"
+"if(typeof d.wifi_mode==='number'&&document.activeElement!==ap"
+"&&document.activeElement!==ss)paintW(d.wifi_mode);"
+"document.getElementById('appw').placeholder="
+"d.ap_password_set?'Unchanged':'None, the network is open';"
+"document.getElementById('stapw').placeholder="
+"d.sta_password_set?'Unchanged':'None, the network is open';"
+"if(typeof d.factory_reset_presses==='number')"
+"document.getElementById('frn').textContent=d.factory_reset_presses;"
 "if(d.device_name){setDev(d.device_name);texts()}"
 "if(typeof d.fan_mode==='number')paintMode(d.fan_mode);"
 "document.getElementById('en_t').checked=d.temp_enabled!==false;"
@@ -436,14 +497,25 @@ static const char index_html[] =
 "show(d.saved?('Relay polarity is now active '+(!c.relay_active_low?'low':'high')+'.'):"
 "(d.error||'Could not change polarity.'),!!d.saved)}"
 "catch(e){show('Could not reach the controller.',false)}});"
-"document.getElementById('bssid').addEventListener('click',async function(){"
-"var v=document.getElementById('apssid').value.trim();var b=this;b.disabled=true;"
+"Array.prototype.forEach.call(document.getElementById('wseg').children,function(b){"
+"b.addEventListener('click',function(){paintW(Number(b.dataset.w))})});"
+"document.getElementById('bnet').addEventListener('click',async function(){"
+"var b=this;b.disabled=true;var body={wifi_mode:WM};"
+"if(WM===0){body.ap_ssid=document.getElementById('apssid').value.trim();"
+"body.ap_password=document.getElementById('appw').value}"
+"else{body.sta_ssid=document.getElementById('stassid').value.trim();"
+"body.sta_password=document.getElementById('stapw').value}"
 "try{const r=await fetch('/api/config',{method:'POST',"
-"headers:{'Content-Type':'application/json'},body:JSON.stringify({ap_ssid:v})});"
+"headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});"
 "const d=await r.json();"
-"if(r.ok&&d.saved){show('Saved. Restart the device, then join '"
-"+(v||'the Greenhouse-XXXX network')+'. This page will not reload by itself.',true)}"
-"else{show(d.error||'Could not save the network name.',false)}"
+"if(r.ok&&d.saved){document.getElementById('appw').value='';"
+"document.getElementById('stapw').value='';"
+"show(WM===0?('Saved. Restart the device, then join '"
+"+(body.ap_ssid||'the Greenhouse-XXXX network')+'.'):"
+"('Saved. Restart the device and it will join '+body.sta_ssid"
+"+'. Look for it in your router client list under the access point name.'),true);"
+"loadCfg()}"
+"else{show(d.error||'Could not save the network settings.',false)}"
 "}catch(e){show('Could not reach the controller.',false)}"
 "b.disabled=false;});"
 "document.getElementById('breboot').addEventListener('click',async function(){"
@@ -477,7 +549,7 @@ static esp_err_t status_handler(httpd_req_t *req)
     greenhouse_config_t cfg;
     config_get(&cfg);
 
-    char buf[576];
+    char buf[704];
     int n = snprintf(buf, sizeof(buf),
                      "{\"ssid\":\"%s\""
                      ",\"valid\":%s"
@@ -503,8 +575,11 @@ static esp_err_t status_handler(httpd_req_t *req)
                      ",\"auto_disabled\":%s"
                      ",\"mode\":%u"
                      ",\"relay_on\":%s"
+                     ",\"ip\":\"%s\""
+                     ",\"net\":\"%s\""
+                     ",\"factory_reset\":%s"
                      ",\"device\":\"%s\"}",
-                     wifi_ap_ssid(),
+                     wifi_ssid(),
                      s.valid ? "true" : "false",
                      s.stale ? "true" : "false",
                      s.temperature_dc / 10, abs(s.temperature_dc % 10),
@@ -513,7 +588,7 @@ static esp_err_t status_handler(httpd_req_t *req)
                      s.reads_ok,
                      s.reads_failed,
                      sensor_error_name(s.last_error),
-                     wifi_ap_client_count(),
+                     wifi_client_count(),
                      (uint32_t)(esp_timer_get_time() / 1000000),
                      sensor_model(),
                      esp_get_free_heap_size(),
@@ -528,6 +603,9 @@ static esp_err_t status_handler(httpd_req_t *req)
                      c.auto_disabled ? "true" : "false",
                      c.mode,
                      relay_is_on() ? "true" : "false",
+                     wifi_ip(),
+                     wifi_state_name(),
+                     factory_reset_triggered() ? "true" : "false",
                      cfg.device_name);
 
     if (n < 0 || n >= (int)sizeof(buf)) {
@@ -554,7 +632,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     greenhouse_config_t c;
     config_get(&c);
 
-    char buf[320];
+    char buf[448];
     int n = snprintf(buf, sizeof(buf),
                      "{\"temp_threshold_c\":%d"
                      ",\"humidity_threshold_pct\":%u"
@@ -567,7 +645,12 @@ static esp_err_t config_get_handler(httpd_req_t *req)
                      ",\"humidity_enabled\":%s"
                      ",\"fan_mode\":%u"
                      ",\"device_name\":\"%s\""
-                     ",\"ap_ssid\":\"%s\"}",
+                     ",\"ap_ssid\":\"%s\""
+                     ",\"wifi_mode\":%u"
+                     ",\"sta_ssid\":\"%s\""
+                     ",\"ap_password_set\":%s"
+                     ",\"sta_password_set\":%s"
+                     ",\"factory_reset_presses\":%d}",
                      c.temp_threshold_c, c.humidity_threshold_pct,
                      c.start_delay_s, c.max_fan_duration_s, c.grace_period_s,
                      c.sensor_poll_interval_s,
@@ -576,7 +659,16 @@ static esp_err_t config_get_handler(httpd_req_t *req)
                      c.humidity_enabled ? "true" : "false",
                      c.fan_mode,
                      c.device_name,
-                     c.ap_ssid);
+                     c.ap_ssid,
+                     c.wifi_mode,
+                     c.sta_ssid,
+                     /* Whether one is set, never what it is. The page has no
+                      * business holding the passphrase, and rendering it into
+                      * the response would put it in every proxy and cache
+                      * between here and the browser. */
+                     c.ap_password[0] != '\0' ? "true" : "false",
+                     c.sta_password[0] != '\0' ? "true" : "false",
+                     CONFIG_GREENHOUSE_FACTORY_RESET_PRESSES);
 
     if (n < 0 || n >= (int)sizeof(buf)) {
         return httpd_resp_send_500(req);
@@ -601,6 +693,67 @@ static bool json_int(const cJSON *root, const char *key, long *dst)
     }
     *dst = (long)item->valuedouble;
     return true;
+}
+
+/*
+ * Read one string field. An absent key leaves the stored value alone, so a
+ * partial POST updates only what it names.
+ *
+ * `keep_empty` is for the passphrases: the page is never told what they are, so
+ * it sends an empty field to mean "unchanged" rather than "clear it". Clearing
+ * one -- which opens the network -- is then only reachable through a deliberate
+ * API call, not through a form the user left blank.
+ *
+ * Returns false when the key is present with the wrong type; an over-long value
+ * is reported through *too_long so the caller can name the field.
+ */
+static bool json_str(const cJSON *root, const char *key, char *dst, size_t len,
+                     bool keep_empty, const char **too_long)
+{
+    const cJSON *item = cJSON_GetObjectItem(root, key);
+    if (item == NULL) {
+        return true;
+    }
+    if (!cJSON_IsString(item) || item->valuestring == NULL) {
+        return false;
+    }
+    if (keep_empty && item->valuestring[0] == '\0') {
+        return true;
+    }
+    if (strlen(item->valuestring) >= len) {
+        /* Refuse rather than truncate: a silently shortened name is worse than
+         * being told it is too long, and a truncated passphrase would lock the
+         * owner out of a network they believe they just configured. */
+        *too_long = key;
+        return true;
+    }
+
+    strlcpy(dst, item->valuestring, len);
+    return true;
+}
+
+/*
+ * config_save() names the field it rejected. Most are numeric and "out of
+ * range" describes them, but the Wi-Fi fields need saying properly.
+ */
+static const char *explain(const char *field)
+{
+    if (field == NULL) {
+        return "a setting is not valid";
+    }
+    if (strcmp(field, "ap_password") == 0 || strcmp(field, "sta_password") == 0) {
+        return "a Wi-Fi password must be 8 to 63 characters";
+    }
+    if (strcmp(field, "sta_ssid") == 0) {
+        return "joining a network needs its name";
+    }
+    if (strcmp(field, "ap_ssid") == 0) {
+        return "that network name cannot be used";
+    }
+    if (strcmp(field, "wifi_mode") == 0) {
+        return "unknown Wi-Fi mode";
+    }
+    return NULL;
 }
 
 static esp_err_t config_post_handler(httpd_req_t *req)
@@ -637,6 +790,7 @@ static esp_err_t config_post_handler(httpd_req_t *req)
     long grace = c.grace_period_s;
     long poll = c.sensor_poll_interval_s;
     long mode = c.fan_mode;
+    long wmode = c.wifi_mode;
 
     bool ok = json_int(root, "temp_threshold_c", &temp) &&
               json_int(root, "humidity_threshold_pct", &hum) &&
@@ -644,7 +798,8 @@ static esp_err_t config_post_handler(httpd_req_t *req)
               json_int(root, "max_fan_duration_s", &maxfan) &&
               json_int(root, "grace_period_s", &grace) &&
               json_int(root, "sensor_poll_interval_s", &poll) &&
-              json_int(root, "fan_mode", &mode);
+              json_int(root, "fan_mode", &mode) &&
+              json_int(root, "wifi_mode", &wmode);
 
     static const struct {
         const char *key;
@@ -655,32 +810,23 @@ static esp_err_t config_post_handler(httpd_req_t *req)
         {"humidity_enabled", offsetof(greenhouse_config_t, humidity_enabled)},
     };
 
-    const cJSON *nm = cJSON_GetObjectItem(root, "device_name");
-    if (nm != NULL) {
-        if (!cJSON_IsString(nm) || nm->valuestring == NULL) {
-            ok = false;
-        } else if (strlen(nm->valuestring) >= GREENHOUSE_DEVICE_NAME_MAX) {
-            /* Refuse rather than truncate: a silently shortened name is worse
-             * than being told it is too long. */
-            cJSON_Delete(root);
-            return send_json(req, HTTPD_400,
-                             "{\"error\":\"device_name is too long\"}");
-        } else {
-            strlcpy(c.device_name, nm->valuestring, sizeof(c.device_name));
-        }
-    }
+    const char *too_long = NULL;
+    ok = json_str(root, "device_name", c.device_name, sizeof(c.device_name),
+                  false, &too_long) && ok;
+    ok = json_str(root, "ap_ssid", c.ap_ssid, sizeof(c.ap_ssid),
+                  false, &too_long) && ok;
+    ok = json_str(root, "sta_ssid", c.sta_ssid, sizeof(c.sta_ssid),
+                  false, &too_long) && ok;
+    ok = json_str(root, "ap_password", c.ap_password, sizeof(c.ap_password),
+                  true, &too_long) && ok;
+    ok = json_str(root, "sta_password", c.sta_password, sizeof(c.sta_password),
+                  true, &too_long) && ok;
 
-    const cJSON *ssid = cJSON_GetObjectItem(root, "ap_ssid");
-    if (ssid != NULL) {
-        if (!cJSON_IsString(ssid) || ssid->valuestring == NULL) {
-            ok = false;
-        } else if (strlen(ssid->valuestring) >= GREENHOUSE_AP_SSID_MAX) {
-            cJSON_Delete(root);
-            return send_json(req, HTTPD_400,
-                             "{\"error\":\"ap_ssid is too long, 32 bytes maximum\"}");
-        } else {
-            strlcpy(c.ap_ssid, ssid->valuestring, sizeof(c.ap_ssid));
-        }
+    if (too_long != NULL) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "{\"error\":\"%s is too long\"}", too_long);
+        cJSON_Delete(root);
+        return send_json(req, HTTPD_400, msg);
     }
 
     for (size_t i = 0; i < sizeof(flags) / sizeof(flags[0]); i++) {
@@ -708,6 +854,7 @@ static esp_err_t config_post_handler(httpd_req_t *req)
     c.grace_period_s = (uint16_t)grace;
     c.sensor_poll_interval_s = (uint8_t)poll;
     c.fan_mode = (uint8_t)mode;
+    c.wifi_mode = (uint8_t)wmode;
 
     const char *bad_field = NULL;
     esp_err_t err = config_save(&c, &bad_field);
@@ -715,8 +862,13 @@ static esp_err_t config_post_handler(httpd_req_t *req)
     char out[192];
 
     if (err == ESP_ERR_INVALID_ARG) {
-        snprintf(out, sizeof(out), "{\"error\":\"%s is out of range\"}",
-                 bad_field != NULL ? bad_field : "a field");
+        const char *why = explain(bad_field);
+        if (why != NULL) {
+            snprintf(out, sizeof(out), "{\"error\":\"%s\"}", why);
+        } else {
+            snprintf(out, sizeof(out), "{\"error\":\"%s is out of range\"}",
+                     bad_field != NULL ? bad_field : "a field");
+        }
         return send_json(req, HTTPD_400, out);
     }
 

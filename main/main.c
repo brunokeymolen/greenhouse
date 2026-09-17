@@ -15,12 +15,13 @@
 #include "freertos/task.h"
 #include "config.h"
 #include "controller.h"
+#include "factory_reset.h"
 #include "history.h"
 #include "relay.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 #include "sensor.h"
-#include "wifi_ap.h"
+#include "wifi.h"
 #include "web.h"
 
 static const char *TAG = "greenhouse";
@@ -56,6 +57,14 @@ void app_main(void)
         ESP_LOGE(TAG, "relay_init failed: %s", esp_err_to_name(err));
     }
 
+    /*
+     * After config_load(), which creates the configuration this may overwrite,
+     * and after relay_init(), so the relay is already in its off state before
+     * any confirmation clicks. Before Wi-Fi, so a reset takes effect on the
+     * network the device brings up rather than the next boot's.
+     */
+    factory_reset_check();
+
     err = history_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "history_init failed: %s", esp_err_to_name(err));
@@ -70,7 +79,7 @@ void app_main(void)
 #if CONFIG_GREENHOUSE_DIAG_NO_WIFI
     ESP_LOGW(TAG, "diagnostic build: Wi-Fi and web server disabled");
 #else
-    ESP_ERROR_CHECK(wifi_ap_start());
+    ESP_ERROR_CHECK(wifi_start());
     ESP_ERROR_CHECK(web_start());
 #endif
 
