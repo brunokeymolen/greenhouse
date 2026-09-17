@@ -20,9 +20,6 @@ relay.
 | Relay | SRD-05VDC-SL-C, rated 10 A at 250 V AC |
 | Sensor | DHT22 / AM2302 (a DHT11 also works; `make menuconfig`) |
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the hardware, wiring, control model and
-toolchain notes.
-
 Current state: milestones 1-7. The firmware reads a DHT22, runs the fan control
 state machine, drives the relay, serves a status and settings page from its own
 Wi-Fi access point, and persists its configuration in NVS.
@@ -51,8 +48,7 @@ so build output is not root-owned, sources the SDK environment and passes
 
 ## Flash and monitor
 
-Put the ESP-01S in the flashing harness described in the design document, hold
-`FLASH`, tap `RESET`, then:
+Put the ESP-01S in the flashing harness, hold `FLASH`, tap `RESET`, then:
 
 ```sh
 docker/run.sh make -j flash
@@ -161,8 +157,7 @@ regulator into dropout.
 It does not fail in any way that looks like a power problem. It shows up as
 humidity readings alternating between the true value and roughly double it, while
 temperature looks fine. Worse supply adds temperature excursions, then read
-timeouts, then all-zero frames. "Sensor Signal Integrity" in
-[docs/DESIGN.md](docs/DESIGN.md) has the full diagnosis.
+timeouts, then all-zero frames.
 
 Fit the decoupling capacitors as well - 10 uF at the regulator output for loop
 stability, and 220-470 uF plus 100 nF at the ESP-01's own VCC/GND pins. Both were
@@ -202,7 +197,7 @@ Sensor GND  -> ESP-01 GND
 GPIO2 is the only free GPIO on the ESP-01 header once the relay takes GPIO0, and
 it must be high at boot — which a DHT sensor with its pull-up already is. Change the
 pin with `CONFIG_GREENHOUSE_SENSOR_GPIO` if your carrier wires the relay to GPIO2
-instead. See [docs/DESIGN.md](docs/DESIGN.md) for how to check that.
+instead.
 
 ## Layout
 
@@ -222,7 +217,6 @@ instead. See [docs/DESIGN.md](docs/DESIGN.md) for how to check that.
 | `sdkconfig.defaults` | Flash size/mode defaults for ESP-01S. |
 | `docker/esp8266.Dockerfile` | Pinned ESP8266_RTOS_SDK v3.4 toolchain image. |
 | `docker/run.sh` | Runs a command inside that image against this project. |
-| `docs/DESIGN.md` | Hardware, wiring, control model, milestones. |
 
 ## Bring-up
 
@@ -464,3 +458,8 @@ is stored as a gap and drawn as one - never as a zero, which would read as
 History is RAM-only and is lost on reboot. Persisting it would mean a flash write
 every 5 minutes, which wears the part out on a device meant to run for seasons.
 2016 samples cost about 6 kB of static RAM.
+
+## License
+
+MIT - see [LICENSE](LICENSE). Source files carry an SPDX identifier rather than
+the full text.

@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Bruno Keymolen
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * Relay output with configurable polarity and a fail-safe off state.
  */
 

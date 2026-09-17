@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Bruno Keymolen
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * Runtime configuration, persisted in NVS.
  *
  * Kconfig supplies the compile-time defaults; NVS overrides them at runtime so

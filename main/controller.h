@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Bruno Keymolen
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * Fan control state machine.
  *
  * Decides relay state from sensor readings and the timing rules in

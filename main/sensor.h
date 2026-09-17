@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Bruno Keymolen
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * Periodic sensor polling task and the shared reading it publishes.
  */
 

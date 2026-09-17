@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Bruno Keymolen
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "controller.h"
 
 #include <string.h>

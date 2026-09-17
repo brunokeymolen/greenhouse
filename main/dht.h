@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Bruno Keymolen
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * Bit-banged driver for the DHT11 and DHT22/AM2302.
  *
  * Both parts use the same single-wire protocol and the same pulse-width bit

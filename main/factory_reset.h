@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Bruno Keymolen
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * Factory reset from the reset button.
  *
  * The ESP-01 carrier has exactly one button, wired to RST, and the header has

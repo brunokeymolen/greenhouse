@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Bruno Keymolen
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * Greenhouse ESP8266 relay controller.
  *
  * Milestones 1-3: boots, polls the sensor, and serves a status page from its own

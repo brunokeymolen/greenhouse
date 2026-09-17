@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Bruno Keymolen
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * Wi-Fi bring-up: our own access point, or joining an existing network.
  *
  * Which one is stored in the configuration and never changes by itself. If

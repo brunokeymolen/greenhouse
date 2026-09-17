@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Bruno Keymolen
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * In-RAM ring buffer of downsampled sensor history, for the chart in the web UI.
  *
  * Deliberately not persisted. Writing a sample to NVS every few minutes would
