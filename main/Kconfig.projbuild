@@ -28,7 +28,7 @@ config GREENHOUSE_SENSOR_GPIO
 
         GPIO2 (default) keeps the serial console working, which makes every
         later milestone easier to debug. It is high at boot through its pull-up,
-        which is what the boot straps require, and a DHT11 idles high too.
+        which is what the boot straps require, and a DHT sensor idles high too.
 
         GPIO1 is the design document's original choice. It works, but it is the
         UART TX pin, so serial logging must be disabled and the web UI becomes
@@ -45,7 +45,7 @@ config GREENHOUSE_RELAY_GPIO
     help
         GPIO0 on the common ESP-01 relay carriers. Confirm with a continuity
         meter before wiring a load: a minority of carriers use GPIO2 instead,
-        which would collide with the DHT11.
+        which would collide with the sensor.
 
         GPIO0 is also the boot strap. It is held high by its pull-up until
         relay_init() runs, so on an active-high carrier the relay is energised
@@ -59,7 +59,8 @@ config GREENHOUSE_SENSOR_POLL_INTERVAL_S
     range 2 60
     help
         Each reading disables interrupts for roughly 5 ms, so do not poll faster
-        than the DHT11's own one-second conversion rate allows.
+        than the sensor's own conversion rate allows: one second for a DHT11, two
+        for a DHT22.
 
 config GREENHOUSE_SENSOR_STALE_TIMEOUT_S
     int "Seconds without a valid reading before the value is flagged stale"
@@ -208,7 +209,7 @@ config GREENHOUSE_DIAG_NO_WIFI
         Skips the access point and web server, leaving only the sensor task.
 
         Use this to tell a supply or RF problem apart from a bad sensor. The
-        DHT11's humidity element is far more sensitive to a sagging 3.3 V rail
+        sensor's humidity element is far more sensitive to a sagging 3.3 V rail
         than its temperature element, so readings that steady up with the radio
         off point at power, not at the sensor.
 

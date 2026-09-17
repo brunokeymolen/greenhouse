@@ -3,7 +3,7 @@
 ## Goal
 
 Build a small greenhouse controller for an ESP8266EX relay board. The device reads
-temperature and humidity from a DHT11 sensor and drives a fan through the relay
+temperature and humidity from a DHT22 sensor and drives a fan through the relay
 when either value remains above a configured threshold long enough.
 
 The controller must be usable by non-technical users without joining an existing
@@ -16,7 +16,8 @@ web UI from the device.
 - Firmware framework: Espressif ESP8266_RTOS_SDK, which is ESP-IDF style for
   ESP8266.
 - Language: C.
-- Sensor: DHT11 temperature/humidity sensor.
+- Sensor: DHT22 / AM2302 temperature/humidity sensor. The driver also supports
+  the DHT11; see "Sensor" in the README for why the DHT22 is fitted.
 - Output: one relay channel controlling a 230 V AC, 375 W fan.
 - Power: regulated 3.3 V for the ESP8266. Relay coil power depends on the relay
   board and must be confirmed from the board markings.
@@ -24,11 +25,11 @@ web UI from the device.
 Important hardware notes:
 
 - ESP8266 GPIOs are 3.3 V logic. Do not feed 5 V signals into an ESP8266 GPIO.
-- The DHT11 can be powered from 3.3 V if the cable is short. Use a pull-up from
+- The sensor can be powered from 3.3 V if the cable is short. Use a pull-up from
   DATA to 3.3 V, typically 4.7 kOhm to 10 kOhm.
-- DHT11 readings are coarse: roughly 1 C and 1 percent RH resolution. It is good
-  enough for a first fan controller, but a DHT22/SHT3x/SHT4x would be better if
-  precise control matters.
+- DHT11 readings are coarse: roughly 1 C and 1 percent RH resolution, and its
+  range stops at 90 percent RH. That is why a DHT22 is fitted instead; an
+  SHT3x/SHT4x would be better again if precise control matters.
 - Any mains wiring for the fan must be isolated and enclosed. Keep low-voltage
   sensor/ESP wiring physically separated from mains wiring.
 - The fan is a mains AC motor load. A 375 W fan at 230 V draws about 1.6 A while

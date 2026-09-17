@@ -1,7 +1,7 @@
 /*
  * Greenhouse ESP8266 relay controller.
  *
- * Milestones 1-3: boots, polls a DHT11, and serves a status page from its own
+ * Milestones 1-3: boots, polls the sensor, and serves a status page from its own
  * access point. The relay is not driven yet; see docs/DESIGN.md.
  *
  * Serial note: with CONFIG_GREENHOUSE_SENSOR_GPIO set to 2 the UART console stays

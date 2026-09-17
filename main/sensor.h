@@ -1,5 +1,5 @@
 /*
- * Periodic DHT11 polling task and the shared reading it publishes.
+ * Periodic sensor polling task and the shared reading it publishes.
  */
 
 #pragma once

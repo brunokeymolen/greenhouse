@@ -1,12 +1,29 @@
 # Greenhouse ESP8266 Relay Controller
 
 Firmware for an ESP-01S relay carrier that ventilates a greenhouse: it reads a
-DHT11 and switches a fan through the on-board relay.
+DHT22 and switches a fan - or in winter a lamp or heater - through the on-board
+relay.
+
+<p>
+<img src="docs/assets/assembled-front.jpg" width="46%"
+     alt="ESP-01S module plugged into the relay carrier, with the DHT22 sensor wired to it">
+<img src="docs/assets/assembled-back.jpg" width="46%"
+     alt="Underside of the carrier, showing the ESP-01/01S Relay v4.0 silkscreen and the VCC, GND, NC, COM and NO pads">
+</p>
+
+**Hardware this is built and tested on**
+
+| Part | What it is |
+| --- | --- |
+| MCU module | **ESP-01S** - an ESP8266EX with 1 MB flash on the black 8-pin PCB. The build targets 1 MB (`CONFIG_ESPTOOLPY_FLASHSIZE="1MB"`), and the application alone is over 530 kB, so the blue 512 kB ESP-01 will not hold it. |
+| Carrier | **ESP-01/01S Relay v4.0**, marked `TB:IOTMCU` on the underside |
+| Relay | SRD-05VDC-SL-C, rated 10 A at 250 V AC |
+| Sensor | DHT22 / AM2302 (a DHT11 also works; `make menuconfig`) |
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the hardware, wiring, control model and
 toolchain notes.
 
-Current state: milestones 1-7. The firmware reads a DHT11, runs the fan control
+Current state: milestones 1-7. The firmware reads a DHT22, runs the fan control
 state machine, drives the relay, serves a status and settings page from its own
 Wi-Fi access point, and persists its configuration in NVS.
 
@@ -49,8 +66,8 @@ Expected output at 115200 baud:
 
 ```text
 I (xx) greenhouse: greenhouse controller starting, sdk v3.4
-I (xx) sensor: polling DHT11 on GPIO2 every 5 s
-I (xx) wifi_ap: SSID Greenhouse-A1B2 up, browse to 192.168.4.1
+I (xx) sensor: polling DHT22 on GPIO2 every 5 s
+I (xx) wifi: SSID Greenhouse-A1B2 up, browse to 192.168.4.1
 I (xx) web: http server listening on port 80
 I (xx) sensor: 22 C, 47 %RH
 ```
@@ -131,7 +148,7 @@ rewritten, so a bad value can never reach the controller. A config written by
 version 1 or 3 of the layout is migrated in place instead, keeping the settings
 it did have.
 
-Occasional entries in `reads_failed` are normal for a DHT11. A rising
+Occasional entries in `reads_failed` are normal for a DHT sensor. A rising
 `reads_failed` with `valid:false` means wiring — check the pull-up first.
 
 ### Power supply
@@ -183,7 +200,7 @@ Sensor GND  -> ESP-01 GND
 ```
 
 GPIO2 is the only free GPIO on the ESP-01 header once the relay takes GPIO0, and
-it must be high at boot — which a DHT11 with its pull-up already is. Change the
+it must be high at boot — which a DHT sensor with its pull-up already is. Change the
 pin with `CONFIG_GREENHOUSE_SENSOR_GPIO` if your carrier wires the relay to GPIO2
 instead. See [docs/DESIGN.md](docs/DESIGN.md) for how to check that.
 
@@ -217,7 +234,7 @@ bottom of the page.
 
 1. **Which GPIO drives the relay.** The firmware assumes GPIO0
    (`CONFIG_GREENHOUSE_RELAY_GPIO`). A minority of carriers use GPIO2, which
-   would collide with the DHT11. Check with a continuity meter, unpowered,
+   would collide with the sensor. Check with a continuity meter, unpowered,
    between the relay driver input and socket pins 3 (GPIO2) and 5 (GPIO0).
 2. **Active-high or active-low.** Press *Test relay* on the web page and listen
    for the click. If the relay is energised when the fan should be off, press
