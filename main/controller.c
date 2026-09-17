@@ -87,34 +87,51 @@ static void controller_task(void *arg)
         sensor_get(&sensor);
 
         bool usable = sensor.valid && sensor.age_s < SENSOR_FAULT_AFTER_S;
-        /* Thresholds are configured in whole degrees and percent; readings
-         * arrive in tenths, so scale the threshold rather than rounding the
-         * reading and losing the DHT22's resolution at the boundary. */
+
         /*
+         * Which side of the threshold switches the load on. Above is
+         * ventilation: too hot or too damp. Below is a lamp or a heater holding
+         * a minimum. The boundary belongs to both, so a reading exactly at the
+         * threshold counts as triggered either way.
+         *
+         * Thresholds are configured in whole degrees and percent; readings
+         * arrive in tenths, so scale the threshold rather than rounding the
+         * reading and losing the DHT22's resolution at the boundary.
+         *
          * A disabled input is still measured, logged and charted; it just does
          * not vote. With both disabled the fan never starts on its own, which is
          * allowed but surfaced in the status so it cannot be mistaken for a
          * fault.
          */
-        bool temp_high = usable && cfg.temp_enabled &&
-                         sensor.temperature_dc >= (int)cfg.temp_threshold_c * 10;
-        bool hum_high = usable && cfg.humidity_enabled &&
-                        sensor.humidity_dpct >= (int)cfg.humidity_threshold_pct * 10;
+        bool below = cfg.trigger_direction == GH_TRIGGER_BELOW;
+        int temp_thr = (int)cfg.temp_threshold_c * 10;
+        int hum_thr = (int)cfg.humidity_threshold_pct * 10;
 
-        /* Either condition alone justifies ventilating: hot but dry still needs
-         * air, and so does cool but damp. */
-        bool high = temp_high || hum_high;
+        bool temp_trig = usable && cfg.temp_enabled &&
+                         (below ? sensor.temperature_dc <= temp_thr
+                                : sensor.temperature_dc >= temp_thr);
+        bool hum_trig = usable && cfg.humidity_enabled &&
+                        (below ? sensor.humidity_dpct <= hum_thr
+                               : sensor.humidity_dpct >= hum_thr);
+
+        /*
+         * Either input alone is enough. Ventilating, hot but dry still needs
+         * air and so does cool but damp; heating or lighting, the same argument
+         * runs the other way.
+         */
+        bool trig = temp_trig || hum_trig;
 
         xSemaphoreTake(s_lock, portMAX_DELAY);
 
         s_elapsed++;
-        s_status.temp_high = temp_high;
-        s_status.humidity_high = hum_high;
+        s_status.temp_trig = temp_trig;
+        s_status.humidity_trig = hum_trig;
         s_status.temp_enabled = cfg.temp_enabled;
         s_status.humidity_enabled = cfg.humidity_enabled;
         s_status.auto_disabled = cfg.fan_mode == FAN_MODE_AUTO &&
                                  !cfg.temp_enabled && !cfg.humidity_enabled;
         s_status.mode = cfg.fan_mode;
+        s_status.trigger_direction = cfg.trigger_direction;
 
         /*
          * A forced mode bypasses the state machine entirely, including the
@@ -161,13 +178,13 @@ static void controller_task(void *arg)
             break;
 
         case CTRL_IDLE:
-            if (high) {
+            if (trig) {
                 enter(CTRL_WAITING);
             }
             break;
 
         case CTRL_WAITING:
-            if (!high) {
+            if (!trig) {
                 /* Not sustained: back to idle without starting. */
                 enter(CTRL_IDLE);
             } else if (s_elapsed >= cfg.start_delay_s) {
@@ -184,7 +201,7 @@ static void controller_task(void *arg)
                 ESP_LOGW(TAG, "max fan duration %us reached, forcing cooldown",
                          cfg.max_fan_duration_s);
                 enter(CTRL_GRACE_FORCED);
-            } else if (!high) {
+            } else if (!trig) {
                 enter(CTRL_GRACE);
             } else {
                 remaining = cfg.max_fan_duration_s - s_elapsed;
@@ -193,7 +210,7 @@ static void controller_task(void *arg)
 
         case CTRL_GRACE:
             /* Fan keeps running: lets the air mix and stops short-cycling. */
-            if (high) {
+            if (trig) {
                 enter(CTRL_FAN_ON);
             } else if (s_elapsed >= cfg.grace_period_s) {
                 enter(CTRL_IDLE);
@@ -203,9 +220,9 @@ static void controller_task(void *arg)
             break;
 
         case CTRL_GRACE_FORCED:
-            /* Locked out even if conditions are still high. */
+            /* Locked out even if the condition still holds. */
             if (s_elapsed >= cfg.grace_period_s) {
-                enter(high ? CTRL_WAITING : CTRL_IDLE);
+                enter(trig ? CTRL_WAITING : CTRL_IDLE);
             } else {
                 remaining = cfg.grace_period_s - s_elapsed;
             }

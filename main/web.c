@@ -138,9 +138,9 @@ static const char index_html[] =
 "border:1px solid #f5c6c0;color:#8a1c10;font-size:18px}"
 "@media(prefers-color-scheme:dark){.netwarn{background:#2b1a18;border-color:#5c2b25;"
 "color:#f0b5ae}}"
-".seg.wifi{margin-top:6px}"
-".seg.wifi button.sel{background:#2f6b3c;color:#fff}"
-"@media(prefers-color-scheme:dark){.seg.wifi button.sel{background:#2f6b3c;color:#fff}}"
+".seg.pick{margin-top:6px}"
+".seg.pick button.sel{background:#2f6b3c;color:#fff}"
+"@media(prefers-color-scheme:dark){.seg.pick button.sel{background:#2f6b3c;color:#fff}}"
 ".tools{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}"
 ".tools button{margin-top:0;flex:1 1 auto;background:#4a5350;font-size:18px;padding:14px}"
 ".rangerow{display:flex;justify-content:space-between;align-items:center;"
@@ -206,12 +206,7 @@ static const char index_html[] =
 "<p id=\"read\">&nbsp;</p>"
 "</div>"
 "<h2>Settings</h2>"
-"<form id=\"f\"><fieldset><legend>Controlled device</legend>"
-"<div class=\"row\"><input type=\"text\" id=\"devname\" maxlength=\"23\" "
-"placeholder=\"Fan\" aria-label=\"Name of the controlled device\" required></div>"
-"<p class=\"hint\">What the relay switches. Shown throughout this page; it "
-"changes nothing about how the controller behaves.</p>"
-"</fieldset><fieldset style=\"margin-top:14px\"><legend id=\"trigleg\">Fan triggers</legend>"
+"<form id=\"f\"><fieldset><legend id=\"trigleg\">Fan triggers</legend>"
 "<div class=\"tog\"><span>Use temperature</span>"
 "<label class=\"sw\"><input type=\"checkbox\" id=\"en_t\" checked><i></i></label></div>"
 "<div class=\"tog\"><span>Use humidity</span>"
@@ -235,9 +230,25 @@ static const char index_html[] =
 "takes effect on the next reading. Times are in minutes here; the JSON API "
 "uses seconds.</p>"
 "</fieldset></form>"
+"<details><summary>Controlled device</summary>"
+"<div class=\"row\" style=\"padding-top:4px\">"
+"<input type=\"text\" id=\"devname\" maxlength=\"23\" placeholder=\"Fan\" "
+"aria-label=\"Name of the controlled device\"></div>"
+"<p class=\"hint\">What the relay switches: a fan, a lamp, a heater, a pump. "
+"Shown throughout this page; it changes nothing about how the controller "
+"behaves.</p>"
+"<div class=\"tools\">"
+"<button type=\"button\" id=\"bdev\">Save name</button>"
+"</div></details>"
+"<details><summary>Trigger direction</summary>"
+"<div class=\"seg pick\" id=\"dseg\" style=\"margin:6px 0 4px\">"
+"<button type=\"button\" data-d=\"0\">Above thresholds</button>"
+"<button type=\"button\" data-d=\"1\">Below thresholds</button>"
+"</div>"
+"<p class=\"hint\" id=\"dirhint\"></p></details>"
 "<details><summary>Network settings</summary>"
 "<fieldset style=\"margin-top:4px\"><legend>Wi-Fi mode</legend>"
-"<div class=\"seg wifi\" id=\"wseg\">"
+"<div class=\"seg pick\" id=\"wseg\">"
 "<button type=\"button\" data-w=\"0\">Own access point</button>"
 "<button type=\"button\" data-w=\"1\">Join a network</button>"
 "</div>"
@@ -281,7 +292,7 @@ static const char index_html[] =
 "</main><script>"
 "var F=[['temp_threshold_c',1],['humidity_threshold_pct',1],['start_delay_s',60],"
 "['max_fan_duration_s',60],['grace_period_s',60],['sensor_poll_interval_s',1]];"
-"var MODE=1,DEV='Fan',WM=0;"
+"var MODE=1,DEV='Fan',WM=0,DIR=0;"
 "function paintW(m){WM=m;"
 "Array.prototype.forEach.call(document.getElementById('wseg').children,function(b){"
 "b.className=(Number(b.dataset.w)===m)?'sel':''});"
@@ -293,9 +304,14 @@ static const char index_html[] =
 "document.getElementById('trigleg').textContent=n+' triggers';}"
 "function texts(){"
 "document.getElementById('trighint').textContent="
-"DEV+' runs when temperature or humidity is at or above its threshold. A "
-"disabled input is still measured and charted, it just stops triggering the '"
-"+DEV.toLowerCase()+'.';"
+"DEV+' runs when temperature or humidity is at or '+(DIR?'below':'above')"
+"+' its threshold. A disabled input is still measured and charted, it just "
+"stops triggering the '+DEV.toLowerCase()+'.';"
+"document.getElementById('dirhint').textContent=DIR?"
+"('Switches '+DEV.toLowerCase()+' on when a reading falls to or below its "
+"threshold. For a lamp or a heater holding a winter minimum.'):"
+"('Switches '+DEV.toLowerCase()+' on when a reading rises to or above its "
+"threshold. For ventilating a greenhouse that is too hot or too damp.');"
 "document.getElementById('bhint').textContent="
 "'Use the test button to identify the relay by ear. If the relay is energised "
 "when the '+DEV.toLowerCase()+' should be off, invert the polarity.';}"
@@ -313,6 +329,20 @@ static const char index_html[] =
 "}catch(e){show('Could not reach the controller.',false)}}"
 "Array.prototype.forEach.call(document.getElementById('seg').children,function(b){"
 "b.addEventListener('click',function(){setMode(Number(b.dataset.m))})});"
+"function paintD(d){DIR=d;"
+"Array.prototype.forEach.call(document.getElementById('dseg').children,function(b){"
+"b.className=(Number(b.dataset.d)===d)?'sel':''});texts()}"
+"async function setDir(d){paintD(d);try{"
+"const r=await fetch('/api/config',{method:'POST',"
+"headers:{'Content-Type':'application/json'},"
+"body:JSON.stringify({trigger_direction:d})});"
+"const j=await r.json();"
+"if(r.ok&&j.saved){show(DEV+' now runs when temperature or humidity is at or '"
+"+(d?'below':'above')+' its threshold.',true)}"
+"else{show(j.error||'Could not change the trigger direction.',false)}"
+"}catch(e){show('Could not reach the controller.',false)}}"
+"Array.prototype.forEach.call(document.getElementById('dseg').children,function(b){"
+"b.addEventListener('click',function(){setDir(Number(b.dataset.d))})});"
 "function dim(){"
 "var t=document.getElementById('en_t').checked,h=document.getElementById('en_h').checked;"
 "document.getElementById('row_t').className=t?'row':'row off';"
@@ -353,12 +383,14 @@ static const char index_html[] =
 "document.getElementById('heap').textContent=(d.free_heap/1024).toFixed(1)+' kB';"
 "if(d.device){setDev(d.device);texts()}"
 "if(typeof d.mode==='number'&&d.mode!==MODE)paintMode(d.mode);"
+"if(typeof d.trig_dir==='number'&&d.trig_dir!==DIR)paintD(d.trig_dir);"
 "var on=(typeof d.relay_on==='boolean')?d.relay_on:d.fan_on;"
 "var fe=document.getElementById('fan');fe.className=on?'fan on':'fan';"
 "document.getElementById('fanstate').textContent=on?'running':'off';"
 "var meta=d.state;"
 "if(d.remaining_s>0)meta+=' \u00b7 '+dur(d.remaining_s)+' left';"
-"else if(d.state==='idle'&&(d.temp_high||d.humidity_high))meta+=' \u00b7 over threshold';"
+"else if(d.state==='idle'&&(d.temp_trig||d.humidity_trig))"
+"meta+=' \u00b7 '+(DIR?'under':'over')+' threshold';"
 "document.getElementById('fanmeta').textContent=meta;"
 "const w=document.getElementById('warn');"
 "if(d.mode===2){w.hidden=false;w.textContent=DEV+' is forced on and will not switch off by itself. Set Auto to return to automatic control.';}"
@@ -388,6 +420,7 @@ static const char index_html[] =
 "document.getElementById('frn').textContent=d.factory_reset_presses;"
 "if(d.device_name){setDev(d.device_name);texts()}"
 "if(typeof d.fan_mode==='number')paintMode(d.fan_mode);"
+"if(typeof d.trigger_direction==='number')paintD(d.trigger_direction);"
 "document.getElementById('en_t').checked=d.temp_enabled!==false;"
 "document.getElementById('en_h').checked=d.humidity_enabled!==false;"
 "dim();"
@@ -396,7 +429,6 @@ static const char index_html[] =
 "ev.preventDefault();var b=document.getElementById('save');b.disabled=true;"
 "var body={};F.forEach(function(f){"
 "body[f[0]]=Math.round(Number(document.getElementsByName(f[0])[0].value)*f[1])});"
-"body.device_name=document.getElementById('devname').value.trim()||'Fan';"
 "body.temp_enabled=document.getElementById('en_t').checked;"
 "body.humidity_enabled=document.getElementById('en_h').checked;"
 "try{const r=await fetch('/api/config',{method:'POST',"
@@ -518,6 +550,16 @@ static const char index_html[] =
 "else{show(d.error||'Could not save the network settings.',false)}"
 "}catch(e){show('Could not reach the controller.',false)}"
 "b.disabled=false;});"
+"document.getElementById('bdev').addEventListener('click',async function(){"
+"var v=document.getElementById('devname').value.trim()||'Fan';var b=this;"
+"b.disabled=true;try{const r=await fetch('/api/config',{method:'POST',"
+"headers:{'Content-Type':'application/json'},"
+"body:JSON.stringify({device_name:v})});"
+"const j=await r.json();"
+"if(r.ok&&j.saved){setDev(v);texts();show('Saved.',true)}"
+"else{show(j.error||'Could not save the name.',false)}"
+"}catch(e){show('Could not reach the controller.',false)}"
+"b.disabled=false;});"
 "document.getElementById('breboot').addEventListener('click',async function(){"
 "if(!confirm('Restart the controller? The relay switches off while it boots.'))return;"
 "try{const r=await fetch('/api/reboot',{method:'POST'});const d=await r.json();"
@@ -549,7 +591,9 @@ static esp_err_t status_handler(httpd_req_t *req)
     greenhouse_config_t cfg;
     config_get(&cfg);
 
-    char buf[704];
+    /* Worst case is 733 bytes: a 32-character SSID, a 23-character device
+     * name, and every counter at its full width. */
+    char buf[832];
     int n = snprintf(buf, sizeof(buf),
                      "{\"ssid\":\"%s\""
                      ",\"valid\":%s"
@@ -568,12 +612,13 @@ static esp_err_t status_handler(httpd_req_t *req)
                      ",\"state\":\"%s\""
                      ",\"in_state_s\":%u"
                      ",\"remaining_s\":%u"
-                     ",\"temp_high\":%s"
-                     ",\"humidity_high\":%s"
+                     ",\"temp_trig\":%s"
+                     ",\"humidity_trig\":%s"
                      ",\"temp_enabled\":%s"
                      ",\"humidity_enabled\":%s"
                      ",\"auto_disabled\":%s"
                      ",\"mode\":%u"
+                     ",\"trig_dir\":%u"
                      ",\"relay_on\":%s"
                      ",\"ip\":\"%s\""
                      ",\"net\":\"%s\""
@@ -596,12 +641,13 @@ static esp_err_t status_handler(httpd_req_t *req)
                      controller_state_name(c.state),
                      c.in_state_s,
                      c.remaining_s,
-                     c.temp_high ? "true" : "false",
-                     c.humidity_high ? "true" : "false",
+                     c.temp_trig ? "true" : "false",
+                     c.humidity_trig ? "true" : "false",
                      c.temp_enabled ? "true" : "false",
                      c.humidity_enabled ? "true" : "false",
                      c.auto_disabled ? "true" : "false",
                      c.mode,
+                     c.trigger_direction,
                      relay_is_on() ? "true" : "false",
                      wifi_ip(),
                      wifi_state_name(),
@@ -632,7 +678,9 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     greenhouse_config_t c;
     config_get(&c);
 
-    char buf[448];
+    /* Worst case is 535 bytes: both 32-character network names plus a
+     * 23-character device name. */
+    char buf[640];
     int n = snprintf(buf, sizeof(buf),
                      "{\"temp_threshold_c\":%d"
                      ",\"humidity_threshold_pct\":%u"
@@ -644,6 +692,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
                      ",\"temp_enabled\":%s"
                      ",\"humidity_enabled\":%s"
                      ",\"fan_mode\":%u"
+                     ",\"trigger_direction\":%u"
                      ",\"device_name\":\"%s\""
                      ",\"ap_ssid\":\"%s\""
                      ",\"wifi_mode\":%u"
@@ -658,6 +707,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
                      c.temp_enabled ? "true" : "false",
                      c.humidity_enabled ? "true" : "false",
                      c.fan_mode,
+                     c.trigger_direction,
                      c.device_name,
                      c.ap_ssid,
                      c.wifi_mode,
@@ -753,6 +803,9 @@ static const char *explain(const char *field)
     if (strcmp(field, "wifi_mode") == 0) {
         return "unknown Wi-Fi mode";
     }
+    if (strcmp(field, "trigger_direction") == 0) {
+        return "unknown trigger direction";
+    }
     return NULL;
 }
 
@@ -791,6 +844,7 @@ static esp_err_t config_post_handler(httpd_req_t *req)
     long poll = c.sensor_poll_interval_s;
     long mode = c.fan_mode;
     long wmode = c.wifi_mode;
+    long tdir = c.trigger_direction;
 
     bool ok = json_int(root, "temp_threshold_c", &temp) &&
               json_int(root, "humidity_threshold_pct", &hum) &&
@@ -799,7 +853,8 @@ static esp_err_t config_post_handler(httpd_req_t *req)
               json_int(root, "grace_period_s", &grace) &&
               json_int(root, "sensor_poll_interval_s", &poll) &&
               json_int(root, "fan_mode", &mode) &&
-              json_int(root, "wifi_mode", &wmode);
+              json_int(root, "wifi_mode", &wmode) &&
+              json_int(root, "trigger_direction", &tdir);
 
     static const struct {
         const char *key;
@@ -855,6 +910,7 @@ static esp_err_t config_post_handler(httpd_req_t *req)
     c.sensor_poll_interval_s = (uint8_t)poll;
     c.fan_mode = (uint8_t)mode;
     c.wifi_mode = (uint8_t)wmode;
+    c.trigger_direction = (uint8_t)tdir;
 
     const char *bad_field = NULL;
     esp_err_t err = config_save(&c, &bad_field);

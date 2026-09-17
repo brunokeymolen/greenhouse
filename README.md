@@ -107,6 +107,7 @@ curl -X POST http://192.168.4.1/api/config \
 | `grace_period_s` | 300 | 0-7200 |
 | `sensor_poll_interval_s` | 5 | 2-60 |
 | `fan_mode` | 1 (auto) | 0 off / 1 auto / 2 on |
+| `trigger_direction` | 0 (above) | 0 above / 1 below thresholds |
 | `device_name` | `"Fan"` | 1-23 bytes |
 | `ap_ssid` | `""` (derive from MAC) | 0-32 bytes |
 | `wifi_mode` | 0 (own access point) | 0 access point / 1 join a network |
@@ -325,9 +326,13 @@ The count, the window and the confirmation clicks are all configurable under
 ## Naming the load
 
 The relay does not have to switch a fan. `device_name` sets what the page calls
-it - "Cooling", "Water pump", "Vent" - and the label follows through the status
-line, the chart legend, the trigger settings and every message. It is cosmetic;
-no behaviour depends on it.
+it - "Cooling", "Water pump", "Lamp", "Heater" - and the label follows through
+the status line, the chart legend, the trigger settings and every message. It is
+cosmetic; no behaviour depends on it.
+
+The field is under **Controlled device** near the bottom of the page, with its
+own save button, since it is set once at installation rather than adjusted from
+day to day.
 
 Quotes, backslashes and control characters are refused so the value needs no
 escaping when it goes into JSON, and the page always renders it with
@@ -352,24 +357,35 @@ timers that were frozen while forced.
 
 ## Fan triggers
 
-The fan runs when **temperature or humidity** is at or above its threshold -
-either alone is enough, since a hot dry greenhouse needs air just as a cool damp
-one does.
+Either input can be taken out of the decision with `temp_enabled` /
+`humidity_enabled` while still being measured, logged and charted. A disabled
+input never triggers. With both disabled the relay cannot switch on
+automatically; that is permitted but reported in the status so it is not
+mistaken for a fault.
 
-Each input can be taken out of that decision independently
-(`temp_enabled`, `humidity_enabled`, or the two switches on the page). A disabled
-input is still measured, logged and charted; it simply stops voting. Disabling
-both is allowed and means the fan never starts on its own - the page shows a
-warning rather than letting that look like normal operation.
+### Above or below
 
-The machine requires *sustained* conditions, so a single bad reading can neither
-start nor stop the fan. `max_fan_duration_s` bounds a run in case the sensor
-sticks or a door is left open; unlike the normal grace period it switches the fan
-**off**, because its job is protecting the fan and relay rather than mixing air.
+`trigger_direction` picks which side of the thresholds switches the load on. It
+applies to both inputs at once - one relay serves one purpose, and mixing
+directions would mean a load asked to run both when it is too cold and when it is
+too damp.
 
-Sensor failure policy: isolated read failures are ignored, but no valid reading
-for 60 seconds forces the fan off and shows a fault. The AP and web UI stay up so
-the wiring can be diagnosed.
+**Above thresholds** (the default) is ventilation: the relay switches on when
+temperature or humidity is at or above its threshold. Hot but dry still needs
+air, and so does cool but damp.
+
+**Below thresholds** inverts it, for winter: a lamp or a heater that runs while
+temperature or humidity is at or below its threshold. The boundary belongs to
+both directions, so a reading exactly at the threshold counts as triggered
+either way.
+
+Nothing downstream changes. The start delay, the bounded run and the grace
+period behave identically; only the comparison flips. `max_fan_duration_s` still
+bounds a single run, which matters just as much for a heater with a stuck sensor
+as for a fan.
+
+The selector is under **Trigger direction** near the bottom of the page and
+applies immediately - there is no restart and no save button.
 
 ## Configuration
 

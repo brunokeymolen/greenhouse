@@ -51,6 +51,7 @@ void config_defaults(greenhouse_config_t *out)
     out->temp_enabled = true;
     out->humidity_enabled = true;
     out->fan_mode = FAN_MODE_AUTO;
+    out->trigger_direction = GH_TRIGGER_ABOVE;
     strlcpy(out->device_name, "Fan", sizeof(out->device_name));
     out->ap_ssid[0] = '\0';  /* derive from the MAC */
 
@@ -219,6 +220,55 @@ static void migrate_v3(const config_v3_t *old, greenhouse_config_t *out)
      * with the compiled-in password, which is exactly what they describe. */
 }
 
+/*
+ * Version 4 layout: before the trigger direction, when the relay could only
+ * switch on above the thresholds. Never change this; it describes what is
+ * already on devices in the field.
+ */
+typedef struct {
+    uint32_t version;
+    int16_t temp_threshold_c;
+    uint8_t humidity_threshold_pct;
+    uint16_t start_delay_s;
+    uint16_t max_fan_duration_s;
+    uint16_t grace_period_s;
+    uint8_t sensor_poll_interval_s;
+    bool relay_active_low;
+    bool temp_enabled;
+    bool humidity_enabled;
+    uint8_t fan_mode;
+    char device_name[GREENHOUSE_DEVICE_NAME_MAX];
+    char ap_ssid[GREENHOUSE_SSID_MAX];
+    uint8_t wifi_mode;
+    char ap_password[GREENHOUSE_PASSWORD_MAX];
+    char sta_ssid[GREENHOUSE_SSID_MAX];
+    char sta_password[GREENHOUSE_PASSWORD_MAX];
+} config_v4_t;
+
+static void migrate_v4(const config_v4_t *old, greenhouse_config_t *out)
+{
+    config_defaults(out);
+
+    out->temp_threshold_c = old->temp_threshold_c;
+    out->humidity_threshold_pct = old->humidity_threshold_pct;
+    out->start_delay_s = old->start_delay_s;
+    out->max_fan_duration_s = old->max_fan_duration_s;
+    out->grace_period_s = old->grace_period_s;
+    out->sensor_poll_interval_s = old->sensor_poll_interval_s;
+    out->relay_active_low = old->relay_active_low;
+    out->temp_enabled = old->temp_enabled;
+    out->humidity_enabled = old->humidity_enabled;
+    out->fan_mode = old->fan_mode;
+    memcpy(out->device_name, old->device_name, sizeof(out->device_name));
+    memcpy(out->ap_ssid, old->ap_ssid, sizeof(out->ap_ssid));
+    out->wifi_mode = old->wifi_mode;
+    memcpy(out->ap_password, old->ap_password, sizeof(out->ap_password));
+    memcpy(out->sta_ssid, old->sta_ssid, sizeof(out->sta_ssid));
+    memcpy(out->sta_password, old->sta_password, sizeof(out->sta_password));
+    /* Direction keeps its default: version 4 only ever switched on above the
+     * thresholds, which is what GH_TRIGGER_ABOVE means. */
+}
+
 static const char *validate(const greenhouse_config_t *c)
 {
     const struct {
@@ -252,6 +302,11 @@ static const char *validate(const greenhouse_config_t *c)
 
     if (c->wifi_mode != GH_WIFI_MODE_AP && c->wifi_mode != GH_WIFI_MODE_STA) {
         return "wifi_mode";
+    }
+
+    if (c->trigger_direction != GH_TRIGGER_ABOVE &&
+        c->trigger_direction != GH_TRIGGER_BELOW) {
+        return "trigger_direction";
     }
 
     if (!password_ok(c->ap_password)) {
@@ -308,10 +363,11 @@ esp_err_t config_load(void)
     bool use_defaults = false;
     bool migrated = false;
 
-    /* Read into a buffer big enough for any known layout, so the stored length
-     * can be inspected rather than having to match the current struct. */
-    uint8_t raw[sizeof(greenhouse_config_t) > sizeof(config_v3_t)
-                ? sizeof(greenhouse_config_t) : sizeof(config_v3_t)];
+    /* Big enough for any known layout, so the stored length can be inspected
+     * rather than having to match the current struct. Version 4 is the largest
+     * of the old ones; the current struct is larger still. */
+    uint8_t raw[sizeof(greenhouse_config_t) > sizeof(config_v4_t)
+                ? sizeof(greenhouse_config_t) : sizeof(config_v4_t)];
     size_t len = sizeof(raw);
 
     nvs_handle_t h;
@@ -340,6 +396,12 @@ esp_err_t config_load(void)
             migrate_v1(&old, &loaded);
             migrated = true;
             ESP_LOGI(TAG, "migrated stored config from version 1");
+        } else if (stored_version == 4 && len == sizeof(config_v4_t)) {
+            config_v4_t old;
+            memcpy(&old, raw, sizeof(old));
+            migrate_v4(&old, &loaded);
+            migrated = true;
+            ESP_LOGI(TAG, "migrated stored config from version 4");
         } else if (stored_version == 3 && len == sizeof(config_v3_t)) {
             config_v3_t old;
             memcpy(&old, raw, sizeof(old));

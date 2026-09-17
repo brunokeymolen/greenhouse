@@ -581,6 +581,10 @@ Configurable values:
 | AP SSID | empty, derived from MAC | 0-32 bytes, same character rules |
 | Temperature trigger | enabled | on/off |
 | Humidity trigger | enabled | on/off |
+| Trigger direction | above thresholds | above / below |
+| Wi-Fi mode | own access point | access point / join a network |
+| AP password | `greenhouse` | 8-63 bytes, or empty for open |
+| Station SSID / password | empty | 0-32 / 8-63 bytes |
 
 State machine:
 
@@ -600,33 +604,44 @@ bypasses the state machine entirely:
 
 Either input can be removed from the decision with `temp_enabled` /
 `humidity_enabled` while still being measured and charted. A disabled input never
-reads as high. With both disabled the fan cannot start automatically; this is
+triggers. With both disabled the fan cannot start automatically; this is
 permitted but reported in the status so it is not mistaken for a fault.
+
+`trigger_direction` selects which side of the thresholds switches the load on:
+at or above for ventilation, at or below for a lamp or heater holding a winter
+minimum. It applies to both inputs at once, since one relay serves one purpose.
+Only the comparison changes; every state and timer below behaves identically, and
+`max_fan_duration` bounds a single run just as usefully for a heater with a stuck
+sensor as for a fan. A reading exactly at a threshold counts as triggered in
+either direction.
 
 ```text
 MANUAL_OFF     fan_mode = off; relay off, conditions ignored
 MANUAL_ON      fan_mode = on;  relay on, conditions ignored
 
+  a reading "triggers" when it is past its threshold on the configured
+  side: at or above it, or at or below it
+
 IDLE
-  if temp_high or humidity_high -> WAITING
+  if temp or humidity triggers -> WAITING
 
 WAITING
-  if values normal -> IDLE
-  if high continuously for start_delay -> FAN_ON
+  if nothing triggers -> IDLE
+  if triggered continuously for start_delay -> FAN_ON
 
 FAN_ON
   relay on
-  if values normal -> GRACE
+  if nothing triggers -> GRACE
   if max_fan_duration reached -> GRACE_FORCED
 
 GRACE
   relay remains on for grace_period
-  if values high again -> FAN_ON
-  if grace expires and values normal -> IDLE
+  if triggered again -> FAN_ON
+  if grace expires and nothing triggers -> IDLE
 
 GRACE_FORCED
   relay off during grace/cooldown
-  ignore new high trigger until grace expires, then return to IDLE/WAITING
+  ignore a new trigger until grace expires, then return to IDLE/WAITING
 ```
 
 Rationale:

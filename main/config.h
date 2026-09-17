@@ -22,7 +22,7 @@ extern "C" {
  * being added, which the length check caught but only by luck: two layouts could
  * as easily have matched in size and been read as each other.
  */
-#define GREENHOUSE_CONFIG_VERSION 4
+#define GREENHOUSE_CONFIG_VERSION 5
 
 /* Including the terminator. Kept small: it is shown on one line in the UI. */
 #define GREENHOUSE_DEVICE_NAME_MAX 24
@@ -43,6 +43,15 @@ typedef enum {
      * here never changes by itself, so the next boot tries the network again. */
     GH_WIFI_MODE_STA = 1,
 } greenhouse_wifi_mode_t;
+
+typedef enum {
+    /* Switch on when a reading is at or above its threshold: ventilating a
+     * greenhouse that is too hot or too damp. */
+    GH_TRIGGER_ABOVE = 0,
+    /* Switch on when a reading is at or below its threshold: a lamp or a
+     * heater holding a winter minimum. */
+    GH_TRIGGER_BELOW = 1,
+} greenhouse_trigger_dir_t;
 
 typedef enum {
     FAN_MODE_OFF = 0,   /* forced off, conditions ignored */
@@ -79,6 +88,11 @@ typedef struct {
     /* The network to join in GH_WIFI_MODE_STA. */
     char sta_ssid[GREENHOUSE_SSID_MAX];
     char sta_password[GREENHOUSE_PASSWORD_MAX];
+    /* Added in version 5. Which side of the thresholds switches the relay on.
+     * It applies to both inputs at once: one relay serves one purpose, and
+     * mixing directions across inputs would mean a load asked to run both when
+     * it is too cold and when it is too damp. */
+    uint8_t trigger_direction;  /* greenhouse_trigger_dir_t */
 } greenhouse_config_t;
 
 /*
