@@ -53,6 +53,17 @@ void config_defaults(greenhouse_config_t *out)
     out->fan_mode = FAN_MODE_AUTO;
     strlcpy(out->device_name, "Fan", sizeof(out->device_name));
     out->ap_ssid[0] = '\0';  /* derive from the MAC */
+
+    /*
+     * Factory state is our own access point with the compiled-in password. It
+     * is the only configuration that can be reached without knowing anything
+     * about the site, which is what makes it a usable recovery target: the
+     * password is printed in the documentation and on the device label.
+     */
+    out->wifi_mode = GH_WIFI_MODE_AP;
+    strlcpy(out->ap_password, CONFIG_GREENHOUSE_AP_PASSWORD, sizeof(out->ap_password));
+    out->sta_ssid[0] = '\0';
+    out->sta_password[0] = '\0';
 }
 
 /*
@@ -73,6 +84,59 @@ static bool name_ok(const char *n)
     for (size_t i = 0; i < len; i++) {
         unsigned char c = (unsigned char)n[i];
         if (c < 0x20 || c == 0x7f || c == '"' || c == '\\') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/*
+ * An SSID is opaque bytes on the air, but ours is also emitted inside a JSON
+ * string, so the same rules as the device name apply. Empty is handled by the
+ * caller: for the AP it means "derive from the MAC", for the station it is
+ * only legal when station mode is not selected.
+ */
+static bool ssid_ok(const char *s)
+{
+    size_t len = strnlen(s, GREENHOUSE_SSID_MAX);
+
+    if (len >= GREENHOUSE_SSID_MAX) {
+        return false;
+    }
+
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c < 0x20 || c == 0x7f || c == '"' || c == '\\') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/*
+ * A WPA2 passphrase is 8 to 63 printable ASCII characters. Empty is allowed and
+ * means an open network; lengths between 1 and 7 are refused rather than
+ * quietly widened to open, which would turn a typo into an unprotected relay.
+ */
+static bool password_ok(const char *s)
+{
+    size_t len = strnlen(s, GREENHOUSE_PASSWORD_MAX);
+
+    if (len >= GREENHOUSE_PASSWORD_MAX) {
+        return false;
+    }
+    if (len == 0) {
+        return true;
+    }
+    if (len < GREENHOUSE_PASSWORD_MIN) {
+        return false;
+    }
+
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c < 0x20 || c >= 0x7f) {
             return false;
         }
     }
@@ -114,6 +178,47 @@ static void migrate_v1(const config_v1_t *old, greenhouse_config_t *out)
     /* Both inputs enabled, which is how version 1 always behaved. */
 }
 
+/*
+ * Version 3 layout: everything up to and including the AP name, before the
+ * Wi-Fi settings moved out of Kconfig. Never change this; it describes what is
+ * already on devices in the field.
+ */
+typedef struct {
+    uint32_t version;
+    int16_t temp_threshold_c;
+    uint8_t humidity_threshold_pct;
+    uint16_t start_delay_s;
+    uint16_t max_fan_duration_s;
+    uint16_t grace_period_s;
+    uint8_t sensor_poll_interval_s;
+    bool relay_active_low;
+    bool temp_enabled;
+    bool humidity_enabled;
+    uint8_t fan_mode;
+    char device_name[GREENHOUSE_DEVICE_NAME_MAX];
+    char ap_ssid[GREENHOUSE_SSID_MAX];
+} config_v3_t;
+
+static void migrate_v3(const config_v3_t *old, greenhouse_config_t *out)
+{
+    config_defaults(out);
+
+    out->temp_threshold_c = old->temp_threshold_c;
+    out->humidity_threshold_pct = old->humidity_threshold_pct;
+    out->start_delay_s = old->start_delay_s;
+    out->max_fan_duration_s = old->max_fan_duration_s;
+    out->grace_period_s = old->grace_period_s;
+    out->sensor_poll_interval_s = old->sensor_poll_interval_s;
+    out->relay_active_low = old->relay_active_low;
+    out->temp_enabled = old->temp_enabled;
+    out->humidity_enabled = old->humidity_enabled;
+    out->fan_mode = old->fan_mode;
+    memcpy(out->device_name, old->device_name, sizeof(out->device_name));
+    memcpy(out->ap_ssid, old->ap_ssid, sizeof(out->ap_ssid));
+    /* Wi-Fi keeps the defaults: version 3 ran the access point unconditionally
+     * with the compiled-in password, which is exactly what they describe. */
+}
+
 static const char *validate(const greenhouse_config_t *c)
 {
     const struct {
@@ -141,17 +246,33 @@ static const char *validate(const greenhouse_config_t *c)
 
     /* Empty is legal and means "derive from the MAC"; anything else is held to
      * the same character rules as the device name. */
-    if (c->ap_ssid[0] != '\0') {
-        size_t len = strnlen(c->ap_ssid, GREENHOUSE_AP_SSID_MAX);
-        if (len >= GREENHOUSE_AP_SSID_MAX) {
-            return "ap_ssid";
-        }
-        for (size_t i = 0; i < len; i++) {
-            unsigned char ch = (unsigned char)c->ap_ssid[i];
-            if (ch < 0x20 || ch == 0x7f || ch == '"' || ch == '\\') {
-                return "ap_ssid";
-            }
-        }
+    if (!ssid_ok(c->ap_ssid)) {
+        return "ap_ssid";
+    }
+
+    if (c->wifi_mode != GH_WIFI_MODE_AP && c->wifi_mode != GH_WIFI_MODE_STA) {
+        return "wifi_mode";
+    }
+
+    if (!password_ok(c->ap_password)) {
+        return "ap_password";
+    }
+
+    if (!ssid_ok(c->sta_ssid)) {
+        return "sta_ssid";
+    }
+
+    if (!password_ok(c->sta_password)) {
+        return "sta_password";
+    }
+
+    /*
+     * Selecting station mode with no network to join would strand the device in
+     * the recovery access point on every boot. Refusing it here means the only
+     * way into that state is a corrupt blob, which wifi_start() handles.
+     */
+    if (c->wifi_mode == GH_WIFI_MODE_STA && c->sta_ssid[0] == '\0') {
+        return "sta_ssid";
     }
 
     return NULL;
@@ -189,8 +310,8 @@ esp_err_t config_load(void)
 
     /* Read into a buffer big enough for any known layout, so the stored length
      * can be inspected rather than having to match the current struct. */
-    uint8_t raw[sizeof(greenhouse_config_t) > sizeof(config_v1_t)
-                ? sizeof(greenhouse_config_t) : sizeof(config_v1_t)];
+    uint8_t raw[sizeof(greenhouse_config_t) > sizeof(config_v3_t)
+                ? sizeof(greenhouse_config_t) : sizeof(config_v3_t)];
     size_t len = sizeof(raw);
 
     nvs_handle_t h;
@@ -219,6 +340,12 @@ esp_err_t config_load(void)
             migrate_v1(&old, &loaded);
             migrated = true;
             ESP_LOGI(TAG, "migrated stored config from version 1");
+        } else if (stored_version == 3 && len == sizeof(config_v3_t)) {
+            config_v3_t old;
+            memcpy(&old, raw, sizeof(old));
+            migrate_v3(&old, &loaded);
+            migrated = true;
+            ESP_LOGI(TAG, "migrated stored config from version 3");
         } else {
             ESP_LOGW(TAG, "stored config is version %u, %u bytes; using defaults",
                      stored_version, (unsigned)len);

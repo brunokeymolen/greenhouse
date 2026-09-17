@@ -22,13 +22,27 @@ extern "C" {
  * being added, which the length check caught but only by luck: two layouts could
  * as easily have matched in size and been read as each other.
  */
-#define GREENHOUSE_CONFIG_VERSION 3
+#define GREENHOUSE_CONFIG_VERSION 4
 
 /* Including the terminator. Kept small: it is shown on one line in the UI. */
 #define GREENHOUSE_DEVICE_NAME_MAX 24
 
 /* 32 bytes is the 802.11 SSID limit, plus a terminator. */
-#define GREENHOUSE_AP_SSID_MAX 33
+#define GREENHOUSE_SSID_MAX 33
+
+/* A WPA2 passphrase is 8 to 63 printable ASCII characters, plus a terminator. */
+#define GREENHOUSE_PASSWORD_MAX 64
+#define GREENHOUSE_PASSWORD_MIN 8
+
+typedef enum {
+    /* Run our own access point. The only mode that needs no other equipment,
+     * so it is what a factory reset returns to. */
+    GH_WIFI_MODE_AP = 0,
+    /* Join an existing network. If the join fails at boot the device falls back
+     * to a recovery access point for that boot only; see wifi.h. What is stored
+     * here never changes by itself, so the next boot tries the network again. */
+    GH_WIFI_MODE_STA = 1,
+} greenhouse_wifi_mode_t;
 
 typedef enum {
     FAN_MODE_OFF = 0,   /* forced off, conditions ignored */
@@ -55,7 +69,16 @@ typedef struct {
     char device_name[GREENHOUSE_DEVICE_NAME_MAX];
     /* Access point name. Empty means derive Greenhouse-XXXX from the MAC, which
      * keeps several units distinguishable without configuring each one. */
-    char ap_ssid[GREENHOUSE_AP_SSID_MAX];
+    char ap_ssid[GREENHOUSE_SSID_MAX];
+    /* Added in version 4: the Wi-Fi settings, previously compile-time only. */
+    uint8_t wifi_mode;  /* greenhouse_wifi_mode_t */
+    /* Our own AP's passphrase. Empty means an open network, which is a
+     * deliberate choice for bring-up, never something the UI can do by
+     * accident: an empty field there means "leave unchanged". */
+    char ap_password[GREENHOUSE_PASSWORD_MAX];
+    /* The network to join in GH_WIFI_MODE_STA. */
+    char sta_ssid[GREENHOUSE_SSID_MAX];
+    char sta_password[GREENHOUSE_PASSWORD_MAX];
 } greenhouse_config_t;
 
 /*
@@ -78,7 +101,9 @@ void config_get(greenhouse_config_t *out);
 esp_err_t config_save(const greenhouse_config_t *in, const char **err_field);
 
 /*
- * Restore compiled-in defaults and persist them.
+ * Restore compiled-in defaults and persist them. This is the factory reset: it
+ * returns the device to its own access point with the built-in password, which
+ * is the only state reachable with no prior knowledge of the installation.
  */
 esp_err_t config_reset(void);
 
