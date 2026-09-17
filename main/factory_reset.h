@@ -38,8 +38,13 @@ extern "C" {
 void factory_reset_check(void);
 
 /*
- * Whether this boot was the one that reset the configuration. Lets the web UI
- * confirm what happened; the device is otherwise silent about it.
+ * Whether this boot was the one that reset the configuration, and recently
+ * enough to still be worth saying so. Lets the web UI confirm what happened;
+ * the device is otherwise silent about it.
+ *
+ * Goes false again once the notice has been up long enough to have been seen,
+ * so the banner does not sit on a working device until the next restart. The
+ * reset itself is not undone by this, only the announcement of it.
  */
 bool factory_reset_triggered(void);
 

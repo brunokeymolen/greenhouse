@@ -32,6 +32,14 @@ static RTC_NOINIT_ATTR struct {
 static bool s_triggered;
 
 /*
+ * How long the web UI keeps announcing the reset. It is a one-time notice, not
+ * a state: once whoever pressed the button has had the chance to see it, a red
+ * banner on a device that is working normally is just noise. Long enough to
+ * join the access point and open the page without hurrying.
+ */
+#define FR_NOTICE_S 900
+
+/*
  * Ends the chain a short while after boot, so the count only ever reflects
  * taps in quick succession. Without this, five resets spread over a season
  * would eventually add up to a factory reset.
@@ -141,5 +149,7 @@ void factory_reset_check(void)
 
 bool factory_reset_triggered(void)
 {
-    return s_triggered;
+    /* esp_timer_get_time() counts from boot, and the reset happened during
+     * this boot, so it doubles as the age of the notice. */
+    return s_triggered && esp_timer_get_time() < (int64_t)FR_NOTICE_S * 1000000;
 }

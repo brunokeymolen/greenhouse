@@ -310,6 +310,11 @@ own access point with the built-in password (`CONFIG_GREENHOUSE_AP_PASSWORD`,
 `greenhouse` unless you changed it at build time). Every other setting returns to
 its default too.
 
+The page also says so in a banner for the first fifteen minutes after the reset.
+That is a one-time notice rather than a state: once there has been time to see
+it, it clears itself, so a working device is not left showing a warning until its
+next restart.
+
 This is the only way back into a device whose password has been forgotten or
 whose network no longer exists, and it deliberately requires physical access.
 There is nothing to reflash.
