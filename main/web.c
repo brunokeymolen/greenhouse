@@ -263,6 +263,11 @@ static const char index_html[] =
 "current one; at least 8 characters to change it.</p>"
 "</div>"
 "<div id=\"stabox\" hidden>"
+"<div class=\"tools\" style=\"margin-top:12px\">"
+"<button type=\"button\" id=\"bscan\">Scan for networks</button></div>"
+"<div class=\"row\" id=\"scanrow\" style=\"padding-bottom:0\" hidden>"
+"<select id=\"scanlist\" style=\"width:100%\" aria-label=\"Networks found\">"
+"</select></div>"
 "<div class=\"row\"><input type=\"text\" id=\"stassid\" maxlength=\"32\" "
 "placeholder=\"Network name\" aria-label=\"Name of the network to join\"></div>"
 "<div class=\"row\" style=\"padding-top:0\"><input type=\"password\" id=\"stapw\" "
@@ -270,7 +275,10 @@ static const char index_html[] =
 "aria-label=\"Password of the network to join\"></div>"
 "<p class=\"hint\">The device joins your existing network and the readings stay "
 "reachable from anywhere in the house. Find its address in your router's client "
-"list, under the access point name above. If it cannot join at startup it "
+"list, under the access point name above. Scanning takes a couple of seconds "
+"and stalls this page while the radio sweeps the channels. A network that is "
+"hidden, or named in something other than text, will not be listed but can "
+"still be joined by typing its name. If it cannot join at startup it "
 "serves its own network for that boot and tries yours again at the next "
 "restart.</p>"
 "</div>"
@@ -292,7 +300,7 @@ static const char index_html[] =
 "</main><script>"
 "var F=[['temp_threshold_c',1],['humidity_threshold_pct',1],['start_delay_s',60],"
 "['max_fan_duration_s',60],['grace_period_s',60],['sensor_poll_interval_s',1]];"
-"var MODE=1,DEV='Fan',WM=0,DIR=0;"
+"var MODE=1,DEV='Fan',WM=0,DIR=0,TICK=null;"
 "function paintW(m){WM=m;"
 "Array.prototype.forEach.call(document.getElementById('wseg').children,function(b){"
 "b.className=(Number(b.dataset.w)===m)?'sel':''});"
@@ -550,6 +558,35 @@ static const char index_html[] =
 "else{show(d.error||'Could not save the network settings.',false)}"
 "}catch(e){show('Could not reach the controller.',false)}"
 "b.disabled=false;});"
+"function bars(r){return r>=-55?'\\u2588\\u2588\\u2588\\u2588':r>=-67?"
+"'\\u2588\\u2588\\u2588\\u2591':r>=-78?'\\u2588\\u2588\\u2591\\u2591':"
+"'\\u2588\\u2591\\u2591\\u2591'}"
+"document.getElementById('bscan').addEventListener('click',async function(){"
+"var b=this,sel=document.getElementById('scanlist');"
+"b.disabled=true;b.textContent='Scanning\\u2026';"
+/* The scan takes the radio away for a couple of seconds; polling through it
+ * only piles up requests that cannot be answered until it finishes. */
+"if(TICK){clearInterval(TICK);TICK=null}"
+"try{const r=await fetch('/api/scan',{cache:'no-store'});const d=await r.json();"
+"if(!r.ok||!d.networks){show(d.error||'Could not scan.',false)}"
+"else if(!d.networks.length){document.getElementById('scanrow').hidden=true;"
+"show('No networks found. Move the device closer, or type the name.',false)}"
+"else{sel.innerHTML='';"
+"var o=document.createElement('option');o.value='';"
+"o.textContent=d.networks.length+' found, pick one\\u2026';sel.appendChild(o);"
+"d.networks.forEach(function(n){var e=document.createElement('option');"
+"e.value=n.ssid;"
+"e.textContent=n.ssid+'  '+bars(n.rssi)+(n.secure?'':'  open');"
+"sel.appendChild(e)});"
+"document.getElementById('scanrow').hidden=false;sel.focus();"
+"show('Pick your network from the list, then enter its password.',true)}"
+"}catch(e){show('Could not reach the controller.',false)}"
+"b.disabled=false;b.textContent='Scan for networks';"
+"if(!TICK)TICK=setInterval(tick,2000);});"
+"document.getElementById('scanlist').addEventListener('change',function(){"
+"if(!this.value)return;"
+"document.getElementById('stassid').value=this.value;"
+"document.getElementById('stapw').focus();});"
 "document.getElementById('bdev').addEventListener('click',async function(){"
 "var v=document.getElementById('devname').value.trim()||'Fan';var b=this;"
 "b.disabled=true;try{const r=await fetch('/api/config',{method:'POST',"
@@ -570,7 +607,7 @@ static const char index_html[] =
 "HOVER=null;document.getElementById('read').innerHTML='&nbsp;';loadHist()});"
 "loadHist();setInterval(loadHist,60000);"
 
-"texts();tick();loadCfg();setInterval(tick,2000);"
+"texts();tick();loadCfg();TICK=setInterval(tick,2000);"
 "</script></body></html>";
 
 static esp_err_t index_handler(httpd_req_t *req)
@@ -1120,6 +1157,66 @@ static esp_err_t relay_test_handler(httpd_req_t *req)
 }
 
 
+/*
+ * Network names arrive off the air, so they are escaped rather than trusted.
+ * wifi_scan() has already refused control characters and anything that is not
+ * valid UTF-8, which leaves the quote and the backslash to handle here: one
+ * unescaped quote in a neighbour's SSID would otherwise break the JSON the page
+ * has to parse.
+ */
+static void json_escape(const char *in, char *out, size_t len)
+{
+    size_t o = 0;
+
+    for (size_t i = 0; in[i] != '\0' && o + 2 < len; i++) {
+        if (in[i] == '"' || in[i] == '\\') {
+            out[o++] = '\\';
+        }
+        out[o++] = in[i];
+    }
+
+    out[o] = '\0';
+}
+
+/*
+ * Streamed in chunks, like the history: sixteen names is over a kilobyte of
+ * JSON, and the scan results are already sitting in a buffer of their own.
+ */
+static esp_err_t scan_handler(httpd_req_t *req)
+{
+    wifi_scan_result_t nets[GREENHOUSE_SCAN_MAX];
+    size_t found = 0;
+
+    esp_err_t err = wifi_scan(nets, GREENHOUSE_SCAN_MAX, &found);
+    if (err != ESP_OK) {
+        char out[96];
+        snprintf(out, sizeof(out), "{\"error\":\"scan failed: %s\"}",
+                 esp_err_to_name(err));
+        return send_json(req, HTTPD_500, out);
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_send_chunk(req, "{\"networks\":[", 13);
+
+    for (size_t i = 0; i < found; i++) {
+        char esc[2 * GREENHOUSE_SSID_MAX];
+        json_escape(nets[i].ssid, esc, sizeof(esc));
+
+        char item[sizeof(esc) + 64];
+        int n = snprintf(item, sizeof(item),
+                         "%s{\"ssid\":\"%s\",\"rssi\":%d,\"secure\":%s}",
+                         i > 0 ? "," : "", esc, nets[i].rssi,
+                         nets[i].secure ? "true" : "false");
+        if (n > 0 && n < (int)sizeof(item)) {
+            httpd_resp_send_chunk(req, item, n);
+        }
+    }
+
+    httpd_resp_send_chunk(req, "]}", 2);
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
 static void reboot_timer_cb(void *arg)
 {
     esp_restart();
@@ -1179,6 +1276,12 @@ static const httpd_uri_t uri_history = {
     .handler = history_handler,
 };
 
+static const httpd_uri_t uri_scan = {
+    .uri = "/api/scan",
+    .method = HTTP_GET,
+    .handler = scan_handler,
+};
+
 static const httpd_uri_t uri_config_get = {
     .uri = "/api/config",
     .method = HTTP_GET,
@@ -1207,6 +1310,7 @@ esp_err_t web_start(void)
     httpd_register_uri_handler(s_server, &uri_reboot);
     httpd_register_uri_handler(s_server, &uri_relay_test);
     httpd_register_uri_handler(s_server, &uri_history);
+    httpd_register_uri_handler(s_server, &uri_scan);
     httpd_register_uri_handler(s_server, &uri_config_get);
     httpd_register_uri_handler(s_server, &uri_config_post);
 

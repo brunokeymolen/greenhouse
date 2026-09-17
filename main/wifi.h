@@ -18,7 +18,10 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include "config.h"
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -67,6 +70,29 @@ const char *wifi_ip(void);
 int wifi_client_count(void);
 
 gh_wifi_state_t gh_wifi_state(void);
+
+/* Enough to choose from without spending heap on a long tail of weak signals. */
+#define GREENHOUSE_SCAN_MAX 16
+
+typedef struct {
+    char ssid[GREENHOUSE_SSID_MAX];
+    int8_t rssi;   /* dBm, closer to zero is stronger */
+    bool secure;   /* anything other than an open network */
+} wifi_scan_result_t;
+
+/*
+ * Scan for nearby networks, strongest first, at most `max` of them.
+ *
+ * Blocks for a second or two while the radio sweeps the channels, which
+ * interrupts whatever the radio is otherwise doing: clients on our own access
+ * point see the link stall until it finishes, and a station connection drops
+ * briefly. Call it only when a user has actually asked to scan.
+ *
+ * Duplicate names are collapsed to their strongest sighting, and a network
+ * whose name is empty or cannot be represented as text is left out; such a
+ * network can still be joined by typing its name.
+ */
+esp_err_t wifi_scan(wifi_scan_result_t *out, size_t max, size_t *found);
 
 /*
  * Stable identifier for the state, for JSON and logs: "ap", "sta", "recovery".

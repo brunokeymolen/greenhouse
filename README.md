@@ -70,6 +70,7 @@ polls `/api/status` every two seconds.
 | `/api/status` | GET | Reading, sensor health, device stats |
 | `/api/config` | GET | Current configuration |
 | `/api/config` | POST | Validate and save configuration |
+| `/api/scan` | GET | Nearby networks, strongest first; blocks ~2 s |
 | `/api/history` | GET | Samples for the chart; `?days=1..7` trims the range |
 | `/api/relay/test` | POST | Energise the relay briefly; `?seconds=1..5` |
 | `/api/reboot` | POST | Restart the controller |
@@ -260,6 +261,14 @@ one.
 anywhere in it rather than only from within radio range of the greenhouse. The
 device registers the access point name as its DHCP hostname, so it can be found
 in the router's client list without hunting for an address.
+
+**Scan for networks** lists what is in range with a signal strength for each, so
+the name can be picked rather than typed. It takes a couple of seconds: serving
+its own access point the device has no station interface, so it adds one for the
+duration, and the sweep across the channels stalls the page until it finishes.
+Duplicate names - repeaters, mesh nodes - are collapsed to their strongest
+sighting. A hidden network, or one whose name is not valid text, is not listed
+but can still be joined by typing the name into the field below the list.
 
 A change applies **on restart**, not immediately: reconfiguring the radio while
 serving the request that asked for it would drop the reply, and the page could

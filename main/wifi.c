@@ -1,5 +1,6 @@
 #include "wifi.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "config.h"
@@ -340,6 +341,195 @@ static esp_err_t start_sta(const greenhouse_config_t *cfg)
     ESP_LOGI(TAG, "joining %s, %d attempts before falling back to a recovery AP",
              s_ssid, CONFIG_GREENHOUSE_STA_CONNECT_ATTEMPTS);
 
+    return ESP_OK;
+}
+
+/*
+ * Whether a scanned name can be shown and stored as text. Broadcast SSIDs are
+ * arbitrary bytes: an empty one is a hidden network, control characters would
+ * have to be escaped everywhere the name travels, and a name that is not valid
+ * UTF-8 would corrupt the JSON the page parses. Anything rejected here can
+ * still be joined by typing it.
+ */
+static bool ssid_printable(const char *s)
+{
+    size_t len = strnlen(s, GREENHOUSE_SSID_MAX);
+
+    if (len == 0 || len >= GREENHOUSE_SSID_MAX) {
+        return false;
+    }
+
+    for (size_t i = 0; i < len;) {
+        unsigned char c = (unsigned char)s[i];
+
+        if (c < 0x20 || c == 0x7f) {
+            return false;
+        }
+
+        /* ASCII, then the three multi-byte UTF-8 forms. Overlong encodings,
+         * surrogates and out-of-range code points are all refused. */
+        size_t extra;
+        uint32_t cp;
+        if (c < 0x80) {
+            i++;
+            continue;
+        } else if ((c & 0xe0) == 0xc0) {
+            extra = 1;
+            cp = c & 0x1f;
+        } else if ((c & 0xf0) == 0xe0) {
+            extra = 2;
+            cp = c & 0x0f;
+        } else if ((c & 0xf8) == 0xf0) {
+            extra = 3;
+            cp = c & 0x07;
+        } else {
+            return false;
+        }
+
+        /* The continuation bytes have to be inside the string: the last one
+         * is at i + extra, so that index must still be below len. */
+        if (i + extra >= len) {
+            return false;
+        }
+
+        for (size_t k = 1; k <= extra; k++) {
+            unsigned char cc = (unsigned char)s[i + k];
+            if ((cc & 0xc0) != 0x80) {
+                return false;
+            }
+            cp = (cp << 6) | (cc & 0x3f);
+        }
+
+        if ((extra == 1 && cp < 0x80) ||
+            (extra == 2 && cp < 0x800) ||
+            (extra == 3 && cp < 0x10000) ||
+            cp > 0x10ffff ||
+            (cp >= 0xd800 && cp <= 0xdfff)) {
+            return false;
+        }
+
+        i += extra + 1;
+    }
+
+    return true;
+}
+
+esp_err_t wifi_scan(wifi_scan_result_t *out, size_t max, size_t *found)
+{
+    if (out == NULL || found == NULL || max == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *found = 0;
+
+    wifi_mode_t mode;
+    esp_err_t err = esp_wifi_get_mode(&mode);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    /*
+     * Scanning needs a station interface. Serving only an access point there
+     * is none, so add one for the duration and take it away again: leaving the
+     * device in APSTA would have it answering as a station it is not using.
+     */
+    bool added_sta = (mode == WIFI_MODE_AP);
+    if (added_sta) {
+        err = esp_wifi_set_mode(WIFI_MODE_APSTA);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+
+    wifi_scan_config_t scan = {0};
+    scan.show_hidden = false;
+    scan.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+    /* Per channel. Thirteen channels at 120 ms is under two seconds, which is
+     * about as long as a client on our own access point will tolerate the link
+     * stalling. */
+    scan.scan_time.active.min = 60;
+    scan.scan_time.active.max = 120;
+
+    err = esp_wifi_scan_start(&scan, true);
+
+    uint16_t n = 0;
+    if (err == ESP_OK) {
+        err = esp_wifi_scan_get_ap_num(&n);
+    }
+
+    if (err == ESP_OK && n > 0) {
+        wifi_ap_record_t *recs = calloc(n, sizeof(*recs));
+        if (recs == NULL) {
+            /* The driver holds the results until they are read out, so read
+             * and discard rather than leaking them until the next scan. */
+            uint16_t none = 0;
+            esp_wifi_scan_get_ap_records(&none, NULL);
+            err = ESP_ERR_NO_MEM;
+        } else {
+            uint16_t got = n;
+            err = esp_wifi_scan_get_ap_records(&got, recs);
+
+            for (uint16_t i = 0; err == ESP_OK && i < got; i++) {
+                char ssid[GREENHOUSE_SSID_MAX];
+                strlcpy(ssid, (const char *)recs[i].ssid, sizeof(ssid));
+
+                if (!ssid_printable(ssid)) {
+                    continue;
+                }
+
+                /* One name, one entry: repeaters and mesh nodes share an SSID,
+                 * and the list is for choosing a network, not a radio. */
+                size_t at = *found;
+                for (size_t k = 0; k < *found; k++) {
+                    if (strcmp(out[k].ssid, ssid) == 0) {
+                        at = k;
+                        break;
+                    }
+                }
+
+                if (at < *found) {
+                    if (recs[i].rssi > out[at].rssi) {
+                        out[at].rssi = recs[i].rssi;
+                        out[at].secure = recs[i].authmode != WIFI_AUTH_OPEN;
+                    }
+                    continue;
+                }
+
+                if (*found == max) {
+                    continue;
+                }
+
+                strlcpy(out[*found].ssid, ssid, sizeof(out[*found].ssid));
+                out[*found].rssi = recs[i].rssi;
+                out[*found].secure = recs[i].authmode != WIFI_AUTH_OPEN;
+                (*found)++;
+            }
+
+            free(recs);
+        }
+    }
+
+    if (added_sta) {
+        esp_wifi_set_mode(WIFI_MODE_AP);
+    }
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "scan failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    /* Strongest first: insertion sort, since the list is at most sixteen. */
+    for (size_t i = 1; i < *found; i++) {
+        wifi_scan_result_t key = out[i];
+        size_t k = i;
+        while (k > 0 && out[k - 1].rssi < key.rssi) {
+            out[k] = out[k - 1];
+            k--;
+        }
+        out[k] = key;
+    }
+
+    ESP_LOGI(TAG, "scan found %u networks", (unsigned)*found);
     return ESP_OK;
 }
 
